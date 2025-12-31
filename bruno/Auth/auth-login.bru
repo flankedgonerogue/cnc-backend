@@ -1,0 +1,28 @@
+meta {
+  name: auth/login
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{BASE_URL}}/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "user@example.com",
+    "password": "test123456"
+  }
+}
+
+script:post-response {
+  const token = res.body.access_token
+  bru.setVar("access_token", token)
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

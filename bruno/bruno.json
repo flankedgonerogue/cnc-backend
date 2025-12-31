@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "cnc-backend",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

@@ -1,0 +1,26 @@
+meta {
+  name: auth/ouath/role
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{BASE_URL}}/auth/oauth/role
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbWxiZXU2dmEwMDAwOHVxNHRxNXlvd252IiwiZW1haWwiOiJmbGFua2VkZ29uZXJvZ3VlQGdtYWlsLmNvbSIsImlhdCI6MTc3MDQxNDA5MCwiZXhwIjoxNzcxMDE4ODkwfQ.WYHksriJ9R9YK15KhRGf_fnmRb2y2At7Txn63ROBWyE
+}
+
+body:json {
+  {
+    "role": "CHILD"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

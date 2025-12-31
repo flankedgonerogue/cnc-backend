@@ -1,0 +1,106 @@
+### Authentication API Test File
+### Use with VS Code REST Client extension or similar tools
+
+@baseUrl = http://localhost:3000
+@contentType = application/json
+
+### Variables (update these after registration/login)
+@accessToken = YOUR_ACCESS_TOKEN_HERE
+@testEmail = test@example.com
+@testPassword = test123456
+
+###############################################
+# 1. REGISTER NEW USER (Email + Password)
+###############################################
+
+POST {{baseUrl}}/auth/register HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "email": "{{testEmail}}",
+  "password": "{{testPassword}}",
+  "firstName": "John",
+  "lastName": "Doe"
+}
+
+###############################################
+# 2. LOGIN (Email + Password)
+###############################################
+
+POST {{baseUrl}}/auth/login HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "email": "{{testEmail}}",
+  "password": "{{testPassword}}"
+}
+
+###############################################
+# 3. GET USER PROFILE (Protected Route)
+###############################################
+
+GET {{baseUrl}}/auth/profile HTTP/1.1
+Authorization: Bearer {{accessToken}}
+
+###############################################
+# 4. VERIFY TOKEN
+###############################################
+
+GET {{baseUrl}}/auth/verify HTTP/1.1
+Authorization: Bearer {{accessToken}}
+
+###############################################
+# 5. GOOGLE OAUTH LOGIN
+# Note: Open this URL in browser
+###############################################
+
+# GET {{baseUrl}}/auth/google
+
+###############################################
+# TEST CASES - Invalid Requests
+###############################################
+
+### Register with invalid email
+POST {{baseUrl}}/auth/register HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "email": "notanemail",
+  "password": "test123456",
+  "firstName": "Test",
+  "lastName": "User"
+}
+
+### Register with short password (less than 6 characters)
+POST {{baseUrl}}/auth/register HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "email": "newuser@example.com",
+  "password": "12345",
+  "firstName": "Test",
+  "lastName": "User"
+}
+
+### Login with wrong password
+POST {{baseUrl}}/auth/login HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "email": "{{testEmail}}",
+  "password": "wrongpassword"
+}
+
+### Access protected route without token (should fail)
+GET {{baseUrl}}/auth/profile HTTP/1.1
+
+### Register duplicate email (should fail)
+POST {{baseUrl}}/auth/register HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "email": "{{testEmail}}",
+  "password": "anotherpassword",
+  "firstName": "Another",
+  "lastName": "User"
+}
