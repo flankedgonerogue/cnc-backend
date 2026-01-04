@@ -5,7 +5,7 @@ import {
   IsNotEmpty,
   IsIn,
 } from 'class-validator';
-import { Role } from '@prisma/client';
+import { Role } from '../../generated/prisma/client';
 
 export class RegisterDto {
   @IsEmail()

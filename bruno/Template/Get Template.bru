@@ -1,0 +1,20 @@
+meta {
+  name: Get Template
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{BASE_URL}}/templates/:templateId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  templateId: cmlfgs2290001jxq4j4jb0q5p
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -1,0 +1,30 @@
+meta {
+  name: Update Template
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{BASE_URL}}/templates/:templateId
+  body: json
+  auth: bearer
+}
+
+params:path {
+  templateId: cmlfgs2290001jxq4j4jb0q5p
+}
+
+auth:bearer {
+  token: {{ACCESS_TOKEN}}
+}
+
+body:json {
+  {
+    "promptSuggestion": "Keep it long tho.."
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

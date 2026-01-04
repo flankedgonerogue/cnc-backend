@@ -14,10 +14,15 @@ body:json {
   {
     "firstName": "John",
     "lastName": "Doe",
-    "email": "user@example.com",
+    "email": "user1@example.com",
     "password": "test123456",
     "role": "GUARDIAN"
   }
+}
+
+script:post-response {
+  const token = res.body.access_token
+  bru.setVar("access_token", token)
 }
 
 settings {

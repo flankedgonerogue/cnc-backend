@@ -1,6 +1,7 @@
 generator client {
   provider = "prisma-client"
-  output   = "../generated/prisma"
+  output   = "../src/generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
@@ -74,17 +75,21 @@ model GuardianProfile {
 
 // Story Template: "Seed data" for AI generation [cite: 227, 418]
 model StoryTemplate {
-  id              String          @id @default(cuid())
-  therapistId     String
-  therapist       TherapistProfile @relation(fields: [therapistId], references: [id])
+  id               String           @id @default(cuid())
+  therapistId      String
+  therapist        TherapistProfile @relation(fields: [therapistId], references: [id])
 
-  targetBehavior  String          // e.g., "Turn-taking" [cite: 227]
-  setting         String          // e.g., "Playground" [cite: 227]
+  targetBehavior   String           // e.g., "Turn-taking" [cite: 227]
+  setting          String           // e.g., "Playground" [cite: 227]
   characterDetails String
-  emotionalTone   String
+  emotionalTone    String
   promptSuggestion String
 
-  sessions        Session[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  deletedAt        DateTime?
+
+  sessions         Session[]
 }
 
 // Session: Represents an active or historical therapy playthrough [cite: 424, 631]

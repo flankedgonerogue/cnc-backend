@@ -43,7 +43,7 @@ export class AuthController {
   @UseGuards(LocalAuthGuard)
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Request() req: AuthRequest, @Body() loginDto: LoginDto) {
+  login(@Request() req: AuthRequest, @Body() loginDto: LoginDto) {
     // LocalAuthGuard validates credentials and attaches user to request
     void loginDto;
     return this.authService.login(req.user);
@@ -78,10 +78,10 @@ export class AuthController {
    */
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
-  async googleAuthCallback(@Request() req: GoogleAuthRequest) {
+  googleAuthCallback(@Request() req: GoogleAuthRequest) {
     // GoogleAuthGuard validates OAuth token and attaches user to request
     const { isNew, ...user } = req.user;
-    const result = await this.authService.login(user);
+    const result = this.authService.login(user);
 
     // In production, you might want to redirect to your frontend with the token
     // For example: res.redirect(`${frontendUrl}/auth/callback?token=${result.access_token}`)

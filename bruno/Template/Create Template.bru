@@ -1,0 +1,30 @@
+meta {
+  name: Create Template
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{BASE_URL}}/templates
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{ACCESS_TOKEN}}
+}
+
+body:json {
+  {
+    "targetBehavior": "Turn-taking",
+    "setting": "Playground",
+    "characterDetails": "Two kids sharing a ball",
+    "emotionalTone": "CALM",
+    "promptSuggestion": "Keep it short"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

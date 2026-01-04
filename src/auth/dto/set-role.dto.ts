@@ -1,5 +1,5 @@
 import { IsIn, IsNotEmpty } from 'class-validator';
-import { Role } from '@prisma/client';
+import { Role } from '../../generated/prisma/client';
 
 export class SetRoleDto {
   @IsIn([Role.GUARDIAN, Role.CHILD], {

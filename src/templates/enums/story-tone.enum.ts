@@ -1,0 +1,7 @@
+export enum StoryTone {
+  CALM = 'CALM',
+  ENCOURAGING = 'ENCOURAGING',
+  PLAYFUL = 'PLAYFUL',
+  EMPATHETIC = 'EMPATHETIC',
+  NEUTRAL = 'NEUTRAL',
+}
