@@ -21,6 +21,13 @@ model User {
   email         String    @unique
   passwordHash  String?   // Nullable for Google OAuth users [cite: 295, 416]
   role          Role?   // Set after OAuth registration
+  firstName     String?
+  lastName      String?
+  displayName   String?
+  avatarUrl     String?
+  timezone      String?
+  locale        String?
+  lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -41,7 +48,11 @@ model TherapistProfile {
   storyTemplates  StoryTemplate[]
 
   // Clinical metadata
-  specialization  String?
+  specialization        String?
+  licenseNumber         String?
+  bio                   String?
+  clinicName            String?
+  interventionThreshold Float?
 }
 
 // Child Profile: Tracks behavioral goals and progress [cite: 419]
@@ -58,7 +69,11 @@ model ChildProfile {
   guardian        GuardianProfile? @relation(fields: [guardianId], references: [id])
 
   // Behavioral data [cite: 419]
-  behavioralGoals String[]
+  dateOfBirth     DateTime?
+  interests       String[]         @default([])
+  triggers        String[]         @default([])
+  behavioralGoals Json?
+  gamificationData Json?
   progressStats   Json?           // Flexible storage for session analytics [cite: 631]
   sessions        Session[]
   rewards         Reward[]
@@ -71,6 +86,12 @@ model GuardianProfile {
   user            User            @relation(fields: [userId], references: [id])
 
   child           ChildProfile?   // 1-to-1 relationship with Child [cite: 422]
+
+  // Guardian metadata
+  relationship            String?
+  phoneNumber             String?
+  emergencyContactInfo    String?
+  notificationPreferences Json?
 }
 
 // Story Template: "Seed data" for AI generation [cite: 227, 418]
