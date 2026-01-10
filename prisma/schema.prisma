@@ -97,8 +97,8 @@ model Session {
   id              String          @id @default(cuid())
   childId         String
   child           ChildProfile     @relation(fields: [childId], references: [id])
-  templateId      String
-  template        StoryTemplate    @relation(fields: [templateId], references: [id])
+  templateId      String?         // Optional: Can be AI-generated without template
+  template        StoryTemplate?   @relation(fields: [templateId], references: [id])
 
   status          SessionStatus    @default(ACTIVE)
   startedAt       DateTime         @default(now())

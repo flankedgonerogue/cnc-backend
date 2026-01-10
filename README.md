@@ -9,6 +9,7 @@ This service provides:
 - JWT-based authentication
 - Role initialization flow for OAuth users
 - Prisma-based data access
+- **Chronicles N Conversations** - AI-powered therapeutic storytelling engine
 
 ## Tech Stack
 - **Framework:** NestJS 11
@@ -67,6 +68,7 @@ The server runs at `http://localhost:3000`.
 
 ## Key Endpoints
 
+### Authentication
 | Method | Endpoint | Description | Auth |
 | --- | --- | --- | --- |
 | POST | `/auth/register` | Register with email/password | ❌ |
@@ -76,6 +78,22 @@ The server runs at `http://localhost:3000`.
 | GET | `/auth/google` | Start Google OAuth flow | ❌ |
 | GET | `/auth/google/callback` | Google OAuth callback | ❌ |
 | POST | `/auth/oauth/role` | Initialize role for OAuth users | ✅ JWT |
+
+### Templates
+| Method | Endpoint | Description | Auth |
+| --- | --- | --- | --- |
+| POST | `/templates` | Create story template | ✅ THERAPIST |
+| GET | `/templates` | List templates | ✅ THERAPIST |
+| GET | `/templates/:id` | Get template | ✅ THERAPIST |
+| PATCH | `/templates/:id` | Update template | ✅ THERAPIST |
+| DELETE | `/templates/:id` | Delete template | ✅ THERAPIST |
+
+### Sessions (Chronicles N Conversations)
+| Method | Endpoint | Description | Auth |
+| --- | --- | --- | --- |
+| POST | `/sessions/initialize` | Start new story session | ✅ GUARDIAN/CHILD |
+| POST | `/sessions/choice` | Make choice & continue story | ✅ GUARDIAN/CHILD |
+| GET | `/sessions/:id` | Get session details | ✅ JWT |
 
 ## Scripts
 
