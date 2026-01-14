@@ -1,0 +1,18 @@
+opencollection: 1.0.0
+info:
+  name: "cnc-backend"
+  type: workspace
+
+collections:
+  - name: "Templates"
+    path: "collections/Templates"
+  - name: "Profiles"
+    path: "collections/Profiles"
+  - name: "Auth"
+    path: "collections/Auth"
+
+specs:
+
+docs: ''
+
+activeEnvironmentUid: ikxmv0000000000000000
