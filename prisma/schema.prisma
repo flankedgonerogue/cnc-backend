@@ -1,6 +1,6 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
   moduleFormat = "cjs"
 }
 
@@ -17,19 +17,19 @@ enum Role {
 
 // Base User model handling authentication fundamentals [cite: 416]
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  passwordHash  String?   // Nullable for Google OAuth users [cite: 295, 416]
-  role          Role?   // Set after OAuth registration
-  firstName     String?
-  lastName      String?
-  displayName   String?
-  avatarUrl     String?
-  timezone      String?
-  locale        String?
-  lastLoginAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String? // Nullable for Google OAuth users [cite: 295, 416]
+  role         Role? // Set after OAuth registration
+  firstName    String?
+  lastName     String?
+  displayName  String?
+  avatarUrl    String?
+  timezone     String?
+  locale       String?
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   // Profile links
   therapistProfile TherapistProfile?
@@ -39,13 +39,13 @@ model User {
 
 // Therapist Profile: Holds clinical authority and manages templates [cite: 417, 418]
 model TherapistProfile {
-  id              String          @id @default(cuid())
-  userId          String          @unique
-  user            User            @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
 
   // Managed relationships [cite: 422]
-  children        ChildProfile[]
-  storyTemplates  StoryTemplate[]
+  children       ChildProfile[]
+  storyTemplates StoryTemplate[]
 
   // Clinical metadata
   specialization        String?
@@ -57,35 +57,35 @@ model TherapistProfile {
 
 // Child Profile: Tracks behavioral goals and progress [cite: 419]
 model ChildProfile {
-  id              String          @id @default(cuid())
-  userId          String          @unique
-  user            User            @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
 
   // Clinical relationships [cite: 422]
-  therapistId     String
-  therapist       TherapistProfile @relation(fields: [therapistId], references: [id])
+  therapistId String
+  therapist   TherapistProfile @relation(fields: [therapistId], references: [id])
 
-  guardianId      String?         @unique
-  guardian        GuardianProfile? @relation(fields: [guardianId], references: [id])
+  guardianId String?          @unique
+  guardian   GuardianProfile? @relation(fields: [guardianId], references: [id])
 
   // Behavioral data [cite: 419]
-  dateOfBirth     DateTime?
-  interests       String[]         @default([])
-  triggers        String[]         @default([])
-  behavioralGoals Json?
+  dateOfBirth      DateTime?
+  interests        String[]  @default([])
+  triggers         String[]  @default([])
+  behavioralGoals  Json?
   gamificationData Json?
-  progressStats   Json?           // Flexible storage for session analytics [cite: 631]
-  sessions        Session[]
-  rewards         Reward[]
+  progressStats    Json? // Flexible storage for session analytics [cite: 631]
+  sessions         Session[]
+  rewards          Reward[]
 }
 
 // Guardian Profile: Facilitator class [cite: 421]
 model GuardianProfile {
-  id              String          @id @default(cuid())
-  userId          String          @unique
-  user            User            @relation(fields: [userId], references: [id])
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
 
-  child           ChildProfile?   // 1-to-1 relationship with Child [cite: 422]
+  child ChildProfile? // 1-to-1 relationship with Child [cite: 422]
 
   // Guardian metadata
   relationship            String?
@@ -96,37 +96,38 @@ model GuardianProfile {
 
 // Story Template: "Seed data" for AI generation [cite: 227, 418]
 model StoryTemplate {
-  id               String           @id @default(cuid())
-  therapistId      String
-  therapist        TherapistProfile @relation(fields: [therapistId], references: [id])
+  id          String           @id @default(cuid())
+  therapistId String
+  therapist   TherapistProfile @relation(fields: [therapistId], references: [id])
 
-  targetBehavior   String           // e.g., "Turn-taking" [cite: 227]
-  setting          String           // e.g., "Playground" [cite: 227]
-  characterDetails String
+  targetBehavior   String // e.g., "Turn-taking" [cite: 227]
+  setting          String // e.g., "Playground" [cite: 227]
+  mainCharacter    String
   emotionalTone    String
   promptSuggestion String
+  visualStyle      String @default("disney-pixar aesthetic")
 
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  deletedAt        DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
-  sessions         Session[]
+  sessions Session[]
 }
 
 // Session: Represents an active or historical therapy playthrough [cite: 424, 631]
 model Session {
-  id              String          @id @default(cuid())
-  childId         String
-  child           ChildProfile     @relation(fields: [childId], references: [id])
-  templateId      String
-  template        StoryTemplate    @relation(fields: [templateId], references: [id])
+  id         String        @id @default(cuid())
+  childId    String
+  child      ChildProfile  @relation(fields: [childId], references: [id])
+  templateId String
+  template   StoryTemplate @relation(fields: [templateId], references: [id])
 
-  status          SessionStatus    @default(ACTIVE)
-  startedAt       DateTime         @default(now())
-  endedAt         DateTime?
+  status    SessionStatus @default(ACTIVE)
+  startedAt DateTime      @default(now())
+  endedAt   DateTime?
 
-  nodes           StoryNode[]
-  interactions    Interaction[]
+  nodes        StoryNode[]
+  interactions Interaction[]
 }
 
 enum SessionStatus {
@@ -137,50 +138,50 @@ enum SessionStatus {
 
 // StoryNode: Individual AI-generated story segments [cite: 166, 252]
 model StoryNode {
-  id              String          @id @default(cuid())
-  sessionId       String
-  session         Session         @relation(fields: [sessionId], references: [id])
+  id        String  @id @default(cuid())
+  sessionId String
+  session   Session @relation(fields: [sessionId], references: [id])
 
-  textContent     String
-  imageUrl        String?         // From Text-to-Image service [cite: 234]
-  audioUrl        String?         // From Text-to-Speech service [cite: 252]
+  textContent String
+  imageUrl    String? // From Text-to-Image service [cite: 234]
+  audioUrl    String? // From Text-to-Speech service [cite: 252]
 
-  confidenceScore Float           // CSE metric (0.0 - 1.0) [cite: 451, 582]
-  isApproved      Boolean          @default(false) // Therapist approval [cite: 418]
+  confidenceScore Float // CSE metric (0.0 - 1.0) [cite: 451, 582]
+  isApproved      Boolean @default(false) // Therapist approval [cite: 418]
 
-  choices         Choice[]
+  choices Choice[]
 }
 
 // Choices: Behavioral options presented to the child [cite: 252, 391]
 model Choice {
-  id              String          @id @default(cuid())
-  nodeId          String
-  node            StoryNode       @relation(fields: [nodeId], references: [id])
+  id     String    @id @default(cuid())
+  nodeId String
+  node   StoryNode @relation(fields: [nodeId], references: [id])
 
-  text            String
-  behavioralTag   String?         // Positive/Negative/Neutral for analytics [cite: 631]
-  interactions    Interaction[]
+  text          String
+  behavioralTag String? // Positive/Negative/Neutral for analytics [cite: 631]
+  interactions  Interaction[]
 }
 
 // Interaction: Detailed logs for Behavioral Analytics [cite: 268, 631]
 model Interaction {
-  id              String          @id @default(cuid())
-  sessionId       String
-  session         Session         @relation(fields: [sessionId], references: [id])
-  choiceId        String
-  choice          Choice          @relation(fields: [choiceId], references: [id])
+  id        String  @id @default(cuid())
+  sessionId String
+  session   Session @relation(fields: [sessionId], references: [id])
+  choiceId  String
+  choice    Choice  @relation(fields: [choiceId], references: [id])
 
-  timeTakenMs     Int             // Engagement metric [cite: 631]
-  timestamp       DateTime         @default(now())
+  timeTakenMs Int // Engagement metric [cite: 631]
+  timestamp   DateTime @default(now())
 }
 
 // Reward: Gamification elements [cite: 393, 638]
 model Reward {
-  id              String          @id @default(cuid())
-  childId         String
-  child           ChildProfile    @relation(fields: [childId], references: [id])
+  id      String       @id @default(cuid())
+  childId String
+  child   ChildProfile @relation(fields: [childId], references: [id])
 
-  type            String          // e.g., "BADGE", "COSMETIC" [cite: 638]
-  name            String          // e.g., "Star", "Golden Dinosaur" [cite: 393]
-  earnedAt        DateTime        @default(now())
+  type     String // e.g., "BADGE", "COSMETIC" [cite: 638]
+  name     String // e.g., "Star", "Golden Dinosaur" [cite: 393]
+  earnedAt DateTime @default(now())
 }
