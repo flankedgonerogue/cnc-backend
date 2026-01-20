@@ -1,0 +1,20 @@
+meta {
+  name: Upload Avatar
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{BASE_URL}}/profiles/me/avatar
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  file: @file(/home/arg/Pictures/55084ac8241399a6966b350c78144855.jpg)
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

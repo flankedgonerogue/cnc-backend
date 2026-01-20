@@ -58,5 +58,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Prisma
 /src/generated/prisma
 
-
 .pnpm-store
+
+# Local Storage
+/uploads

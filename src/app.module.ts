@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { TemplatesModule } from './templates/templates.module';
 import { SessionsModule } from './sessions/sessions.module';
+import { ProfilesModule } from './profiles/profiles.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { SessionsModule } from './sessions/sessions.module';
     UsersModule,
     TemplatesModule,
     SessionsModule,
+    ProfilesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

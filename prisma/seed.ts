@@ -85,13 +85,13 @@ async function main() {
     update: {
       therapistId: therapistProfile.id,
       guardianId: guardianProfile.id,
-      behavioralGoals: { set: [] },
+      behavioralGoals: {},
     },
     create: {
       userId: childUser.id,
       therapistId: therapistProfile.id,
       guardianId: guardianProfile.id,
-      behavioralGoals: [],
+      behavioralGoals: {},
     },
   });
 

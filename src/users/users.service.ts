@@ -14,6 +14,13 @@ export class UsersService {
       email: user.email,
       passwordHash: user.passwordHash ?? undefined,
       role: user.role ?? undefined,
+      firstName: user.firstName ?? undefined,
+      lastName: user.lastName ?? undefined,
+      displayName: user.displayName ?? undefined,
+      avatarUrl: user.avatarUrl ?? undefined,
+      timezone: user.timezone ?? undefined,
+      locale: user.locale ?? undefined,
+      lastLoginAt: user.lastLoginAt ?? undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
