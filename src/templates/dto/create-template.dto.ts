@@ -13,7 +13,7 @@ export class CreateTemplateDto {
 
   @IsString()
   @MaxLength(500)
-  characterDetails: string;
+  mainCharacter: string;
 
   @IsEnum(StoryTone)
   emotionalTone: StoryTone;

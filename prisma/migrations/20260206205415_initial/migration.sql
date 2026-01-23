@@ -51,7 +51,7 @@ CREATE TABLE "StoryTemplate" (
     "therapistId" TEXT NOT NULL,
     "targetBehavior" TEXT NOT NULL,
     "setting" TEXT NOT NULL,
-    "characterDetails" TEXT NOT NULL,
+    "mainCharacter" TEXT NOT NULL,
     "emotionalTone" TEXT NOT NULL,
     "promptSuggestion" TEXT NOT NULL,
 

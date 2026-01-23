@@ -88,7 +88,7 @@ describe('Templates (e2e)', () => {
       .send({
         targetBehavior: 'Turn-taking',
         setting: 'Playground',
-        characterDetails: 'Two kids sharing a ball',
+        mainCharacter: 'Two kids sharing a ball',
         emotionalTone: StoryTone.CALM,
         promptSuggestion: 'Keep it short',
       })
@@ -104,7 +104,7 @@ describe('Templates (e2e)', () => {
       .send({
         targetBehavior: 'Turn-taking',
         setting: 'Playground',
-        characterDetails: 'Two kids sharing a ball',
+        mainCharacter: 'Two kids sharing a ball',
         emotionalTone: StoryTone.CALM,
         promptSuggestion: 'Keep it short',
       })
@@ -124,7 +124,7 @@ describe('Templates (e2e)', () => {
       .send({
         targetBehavior: 'Sharing',
         setting: 'Classroom',
-        characterDetails: 'Two students sharing crayons',
+        mainCharacter: 'Two students sharing crayons',
         emotionalTone: StoryTone.ENCOURAGING,
         promptSuggestion: 'Short and positive',
       })

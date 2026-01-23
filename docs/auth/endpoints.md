@@ -176,7 +176,7 @@ Content-Type: application/json
 {
   "targetBehavior": "Turn-taking",
   "setting": "Playground",
-  "characterDetails": "Two kids sharing a ball",
+  "mainCharacter": "Two kids sharing a ball",
   "emotionalTone": "CALM",
   "promptSuggestion": "Keep it short"
 }
@@ -257,7 +257,7 @@ Authorization: Bearer <access_token>
 
 - `targetBehavior` (string, min 3, max 100)
 - `setting` (string, max 200)
-- `characterDetails` (string, max 500)
+- `mainCharacter` (string, max 500)
 - `emotionalTone` (enum: `CALM`, `ENCOURAGING`, `PLAYFUL`, `EMPATHETIC`, `NEUTRAL`)
 - `promptSuggestion` (string, max 500)
 

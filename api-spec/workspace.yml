@@ -10,6 +10,8 @@ collections:
     path: "collections/Profiles"
   - name: "Auth"
     path: "collections/Auth"
+  - name: "Sessions"
+    path: "collections/Sessions"
 
 specs:
 
