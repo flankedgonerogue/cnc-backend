@@ -1,0 +1,16 @@
+meta {
+  name: System Stats
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{BASE_URL}}/admin/stats
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

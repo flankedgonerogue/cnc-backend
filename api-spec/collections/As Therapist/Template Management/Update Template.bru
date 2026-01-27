@@ -1,21 +1,17 @@
 meta {
   name: Update Template
   type: http
-  seq: 4
+  seq: 2
 }
 
 patch {
   url: {{BASE_URL}}/templates/:templateId
   body: json
-  auth: bearer
+  auth: inherit
 }
 
 params:path {
-  templateId: cmlfgs2290001jxq4j4jb0q5p
-}
-
-auth:bearer {
-  token: {{ACCESS_TOKEN}}
+  templateId: {{TEMPLATE_ID}}
 }
 
 body:json {

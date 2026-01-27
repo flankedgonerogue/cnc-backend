@@ -1,0 +1,16 @@
+meta {
+  name: auth/google
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{BASE_URL}}/auth/google
+  body: none
+  auth: none
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

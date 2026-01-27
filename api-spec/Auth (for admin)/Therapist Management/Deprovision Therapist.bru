@@ -1,0 +1,20 @@
+meta {
+  name: Deprovision Therapist
+  type: http
+  seq: 2
+}
+
+delete {
+  url: {{BASE_URL}}/admin/therapists/:therapistUserId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  therapistUserId: cmlh22smd000bmiq40ygfxuuc
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

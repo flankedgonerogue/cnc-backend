@@ -22,4 +22,10 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false,
   },
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "prisma/**/*.ts",
+    "eslint.config.mjs",
+  ],
 }

@@ -12,14 +12,9 @@ post {
 
 body:json {
   {
-    "email": "{{ADMIN_EMAIL}}",
-    "password": "{{ADMIN_PASSWORD}}"
+    "email": "{{THERAPIST_EMAIL}}",
+    "password": "{{DEFAULT_PASSWORD}}"
   }
-}
-
-script:post-response {
-  const token = res.body.access_token
-  bru.setEnvVar("ACCESS_TOKEN", token)
 }
 
 settings {

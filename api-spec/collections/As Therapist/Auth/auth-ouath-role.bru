@@ -1,0 +1,22 @@
+meta {
+  name: auth/ouath/role
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{BASE_URL}}/auth/oauth/role
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "role": "THERAPIST"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -1,0 +1,20 @@
+meta {
+  name: Reprovision Therapist
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{BASE_URL}}/admin/therapists/:therapistUserId/reprovision
+  body: none
+  auth: inherit
+}
+
+params:path {
+  therapistUserId: cmlh22smd000bmiq40ygfxuuc
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

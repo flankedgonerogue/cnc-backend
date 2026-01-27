@@ -5,8 +5,8 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { TemplatesModule } from './templates/templates.module';
-import { SessionsModule } from './sessions/sessions.module';
 import { ProfilesModule } from './profiles/profiles.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -23,8 +23,8 @@ import { ProfilesModule } from './profiles/profiles.module';
     AuthModule,
     UsersModule,
     TemplatesModule,
-    SessionsModule,
     ProfilesModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -35,6 +35,10 @@ DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?schema=public"
 JWT_SECRET="replace-with-a-long-random-string"
 JWT_EXPIRES_IN="7d"
 
+# Admin seed (optional - used by prisma db seed)
+ADMIN_SEED_EMAIL="admin@example.com"
+ADMIN_SEED_PASSWORD="replace-with-a-strong-password"
+
 # Google OAuth (optional)
 GOOGLE_CLIENT_ID=""
 GOOGLE_CLIENT_SECRET=""
@@ -65,7 +69,17 @@ This will create the database tables based on `prisma/schema.prisma`.
 
 ---
 
-## 5) Start the server
+## 5) Seed the admin account (recommended)
+
+```/dev/null/sh#L1-1
+npm run prisma:seed
+```
+
+This will upsert the initial admin account using `ADMIN_SEED_EMAIL` and `ADMIN_SEED_PASSWORD` (or the defaults if unset).
+
+---
+
+## 6) Start the server
 
 ```/dev/null/sh#L1-1
 npm run start:dev
@@ -75,7 +89,7 @@ The API will be available at `http://localhost:3000`.
 
 ---
 
-## 6) Quick API check
+## 7) Quick API check
 
 Register a user:
 
@@ -105,9 +119,11 @@ curl -X GET http://localhost:3000/auth/profile \
 ## Common issues
 
 ### `DATABASE_URL is required`
+
 Your `.env` is missing `DATABASE_URL` or it’s empty. Fix it and restart the server.
 
 ### Prisma client not generated
+
 Run:
 
 ```/dev/null/sh#L1-1
@@ -115,6 +131,7 @@ npm run prisma:generate
 ```
 
 ### Migration errors
+
 Check your `DATABASE_URL` credentials and that the database exists.
 
 ---

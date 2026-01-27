@@ -4,14 +4,16 @@ info:
   type: workspace
 
 collections:
-  - name: "Templates"
-    path: "collections/Templates"
   - name: "Profiles"
     path: "collections/Profiles"
   - name: "Auth"
     path: "collections/Auth"
   - name: "Sessions"
     path: "collections/Sessions"
+  - name: "Auth (for admin)"
+    path: "Auth (for admin)"
+  - name: "As Therapist"
+    path: "collections/As Therapist"
 
 specs:
 

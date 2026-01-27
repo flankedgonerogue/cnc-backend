@@ -10,7 +10,10 @@ const prisma = new PrismaClient({
 
 async function main() {
   const password = 'test123456';
+  const adminEmail = process.env.ADMIN_SEED_EMAIL ?? 'admin@example.com';
+  const adminPassword = process.env.ADMIN_SEED_PASSWORD ?? password;
   const passwordHash = await bcrypt.hash(password, 10);
+  const adminPasswordHash = await bcrypt.hash(adminPassword, 10);
 
   const jwtSecret = process.env.JWT_SECRET;
   if (!jwtSecret) {
@@ -20,6 +23,19 @@ async function main() {
   const jwtService = new JwtService({
     secret: jwtSecret,
     signOptions: { expiresIn: jwtExpiresIn },
+  });
+
+  const adminUser = await prisma.user.upsert({
+    where: { email: adminEmail },
+    update: {
+      passwordHash: adminPasswordHash,
+      role: Role.ADMIN,
+    },
+    create: {
+      email: adminEmail,
+      passwordHash: adminPasswordHash,
+      role: Role.ADMIN,
+    },
   });
 
   const guardianUser = await prisma.user.upsert({
@@ -95,6 +111,12 @@ async function main() {
     },
   });
 
+  const adminAccessToken = jwtService.sign({
+    sub: adminUser.id,
+    email: adminUser.email,
+    role: adminUser.role,
+  });
+
   const therapistAccessToken = jwtService.sign({
     sub: therapistUser.id,
     email: therapistUser.email,
@@ -114,15 +136,20 @@ async function main() {
   });
 
   console.log('Seeded users and profiles:');
+  console.log(`- ${adminEmail}`);
   console.log('- therapist@example.com');
   console.log('- guardian@example.com');
   console.log('- child@example.com');
-  console.log('Password for all users:', password);
+  console.log('Default password for non-admin users:', password);
+  console.log('Admin credentials:');
+  console.log(`- email: ${adminEmail}`);
+  console.log(`- password: ${adminPassword}`);
   console.log('Profiles:');
   console.log('- TherapistProfile ID:', therapistProfile.id);
   console.log('- GuardianProfile ID:', guardianProfile.id);
   console.log('- ChildProfile ID:', childProfile.id);
   console.log('Access tokens:');
+  console.log('- Admin:', adminAccessToken);
   console.log('- Therapist:', therapistAccessToken);
   console.log('- Guardian:', guardianAccessToken);
   console.log('- Child:', childAccessToken);

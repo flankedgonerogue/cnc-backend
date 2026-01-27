@@ -4,11 +4,11 @@ This directory contains the current, actively maintained guides for the backend 
 
 ## Guides
 
-- **Quick Start** (`QUICK_START.md`)  
+- **Quick Start** (`QUICK_START.md`)
   Get the API running locally, configure environment variables, and smoke‑test the auth flows.
 
-- **Auth API Guide** (`auth/endpoints.md`)  
-  Endpoint reference, request/response examples, auth flows, and security notes.
+- **Auth + Admin API Guide** (`auth/endpoints.md`)
+  Endpoint reference, request/response examples, auth flows, admin management routes, and security notes.
 
 ## Suggested Reading Order
 

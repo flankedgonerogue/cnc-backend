@@ -10,6 +10,7 @@ datasource db {
 
 // User roles as defined in the SRS package structure [cite: 415]
 enum Role {
+  ADMIN
   THERAPIST
   GUARDIAN
   CHILD
@@ -30,11 +31,14 @@ model User {
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
 
   // Profile links
   therapistProfile TherapistProfile?
   guardianProfile  GuardianProfile?
   childProfile     ChildProfile?
+  actionLogs       ActionLog[]       @relation("AdminActionLogs")
+  targetActionLogs ActionLog[]       @relation("TargetUserActionLogs")
 }
 
 // Therapist Profile: Holds clinical authority and manages templates [cite: 417, 418]
@@ -49,7 +53,7 @@ model TherapistProfile {
 
   // Clinical metadata
   specialization        String?
-  licenseNumber         String?
+  licenseNumber         String? @unique
   bio                   String?
   clinicName            String?
   interventionThreshold Float?
@@ -184,4 +188,14 @@ model Reward {
   type     String // e.g., "BADGE", "COSMETIC" [cite: 638]
   name     String // e.g., "Star", "Golden Dinosaur" [cite: 393]
   earnedAt DateTime @default(now())
+}
+
+model ActionLog {
+  id           String   @id @default(cuid())
+  adminId      String
+  admin        User     @relation("AdminActionLogs", fields: [adminId], references: [id])
+  actionType   String
+  targetUserId String
+  targetUser   User     @relation("TargetUserActionLogs", fields: [targetUserId], references: [id])
+  timestamp    DateTime @default(now())
 }

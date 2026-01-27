@@ -1,6 +1,6 @@
-# API Endpoints — Auth + Templates
+# API Endpoints — Auth + Templates + Admin
 
-This document describes the authentication and social story template endpoints for the CNC Backend.
+This document describes the authentication, admin management, and social story template endpoints for the CNC Backend.
 
 ## Base URL
 
@@ -22,7 +22,8 @@ Required at runtime:
 - Users are stored in PostgreSQL via Prisma.
 - Passwords are stored as `passwordHash`.
 - OAuth users have no `passwordHash`.
-- Roles are `GUARDIAN`, `CHILD`, or `THERAPIST`.
+- Roles are `ADMIN`, `THERAPIST`, `GUARDIAN`, or `CHILD`.
+- Deactivated users (where `deletedAt` is set) cannot authenticate.
 - Role initialization for OAuth users only allows `GUARDIAN` or `CHILD`.
 - Template routes are restricted to `THERAPIST` users and protected by ownership checks.
 
@@ -46,6 +47,7 @@ Content-Type: application/json
 ```
 
 **Responses**
+
 - `201 Created` with `access_token` and `user`
 - `409 Conflict` if email already exists
 - `401 Unauthorized` if role is `THERAPIST`
@@ -67,6 +69,7 @@ Content-Type: application/json
 ```
 
 **Responses**
+
 - `200 OK` with `access_token` and `user`
 - `401 Unauthorized` if credentials are invalid
 - `401 Unauthorized` if the account is OAuth-only (no password set)
@@ -83,6 +86,7 @@ Authorization: Bearer <access_token>
 ```
 
 **Responses**
+
 - `200 OK` with user data
 - `401 Unauthorized` if token is missing/invalid
 
@@ -98,6 +102,7 @@ Authorization: Bearer <access_token>
 ```
 
 **Responses**
+
 - `200 OK` with `{ valid: true, user }`
 - `401 Unauthorized` if token is missing/invalid
 
@@ -112,6 +117,7 @@ GET /auth/google
 ```
 
 **Behavior**
+
 - Redirects the user to Google’s consent screen.
 
 ---
@@ -125,6 +131,7 @@ GET /auth/google/callback
 ```
 
 **Responses**
+
 - `200 OK` with:
   - `access_token`
   - `user`
@@ -133,6 +140,7 @@ GET /auth/google/callback
   - `message`
 
 **Notes**
+
 - If the email exists with a password, login is rejected.
 - If the user is new, a record is created without a password.
 
@@ -153,6 +161,7 @@ Content-Type: application/json
 ```
 
 **Responses**
+
 - `200 OK` with updated user
 - `400/401` if role is invalid or already set
 - `401 Unauthorized` if role is `THERAPIST`
@@ -162,6 +171,7 @@ Content-Type: application/json
 # Templates Endpoints (Therapist Only)
 
 All template endpoints require:
+
 - `Authorization: Bearer <access_token>`
 - Role: `THERAPIST`
 - Ownership enforced per `templateId`
@@ -183,6 +193,7 @@ Content-Type: application/json
 ```
 
 **Responses**
+
 - `201 Created` with template record
 - `401 Unauthorized` if token is missing/invalid
 - `403 Forbidden` if role is not `THERAPIST`
@@ -198,6 +209,7 @@ GET /templates?take=20&skip=0
 ```
 
 **Responses**
+
 - `200 OK` array of templates belonging to the therapist
 - `401 Unauthorized` if token is missing/invalid
 - `403 Forbidden` if role is not `THERAPIST`
@@ -211,6 +223,7 @@ GET /templates/{templateId}
 ```
 
 **Responses**
+
 - `200 OK` with template record
 - `401 Unauthorized` if token is missing/invalid
 - `403 Forbidden` if not the owner
@@ -231,6 +244,7 @@ Content-Type: application/json
 ```
 
 **Responses**
+
 - `200 OK` with updated template record
 - `401 Unauthorized` if token is missing/invalid
 - `403 Forbidden` if not the owner
@@ -246,6 +260,7 @@ Authorization: Bearer <access_token>
 ```
 
 **Responses**
+
 - `204 No Content`
 - `401 Unauthorized` if token is missing/invalid
 - `403 Forbidden` if not the owner
@@ -260,6 +275,108 @@ Authorization: Bearer <access_token>
 - `mainCharacter` (string, max 500)
 - `emotionalTone` (enum: `CALM`, `ENCOURAGING`, `PLAYFUL`, `EMPATHETIC`, `NEUTRAL`)
 - `promptSuggestion` (string, max 500)
+
+---
+
+# Admin Endpoints (Admin Only)
+
+All admin endpoints require:
+
+- `Authorization: Bearer <access_token>`
+- Role: `ADMIN`
+
+## Create Therapist
+
+```/dev/null/http.txt#L1-10
+POST /admin/therapists
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "email": "therapist@example.com",
+  "password": "strong-password",
+  "firstName": "Jane",
+  "lastName": "Doe",
+  "clinicName": "Bright Minds Clinic",
+  "licenseNumber": "LIC-12345",
+  "specialization": "Behavioral Therapy",
+  "bio": "Clinician bio",
+  "interventionThreshold": 0.6
+}
+```
+
+**Responses**
+
+- `201 Created` with therapist summary
+- `401 Unauthorized` if token is missing/invalid
+- `403 Forbidden` if role is not `ADMIN`
+- `409 Conflict` if email or license number already exists
+
+---
+
+## List Therapists
+
+```/dev/null/http.txt#L1-2
+GET /admin/therapists
+Authorization: Bearer <access_token>
+```
+
+**Responses**
+
+- `200 OK` array of therapist summaries (includes `activeChildCount`)
+- `401 Unauthorized` if token is missing/invalid
+- `403 Forbidden` if role is not `ADMIN`
+
+---
+
+## Deprovision Therapist
+
+Soft deletes the therapist user by setting `deletedAt`.
+
+```/dev/null/http.txt#L1-2
+DELETE /admin/therapists/{therapistUserId}
+Authorization: Bearer <access_token>
+```
+
+**Responses**
+
+- `204 No Content`
+- `401 Unauthorized` if token is missing/invalid
+- `403 Forbidden` if role is not `ADMIN`
+- `404 Not Found` if therapist does not exist
+
+---
+
+## Reprovision Therapist
+
+Reactivates a soft-deleted therapist by clearing `deletedAt`.
+
+```/dev/null/http.txt#L1-2
+POST /admin/therapists/{therapistUserId}/reprovision
+Authorization: Bearer <access_token>
+```
+
+**Responses**
+
+- `200 OK` with `{ userId, deletedAt: null }`
+- `401 Unauthorized` if token is missing/invalid
+- `403 Forbidden` if role is not `ADMIN`
+- `404 Not Found` if therapist does not exist
+
+---
+
+## System Stats
+
+```/dev/null/http.txt#L1-2
+GET /admin/stats
+Authorization: Bearer <access_token>
+```
+
+**Responses**
+
+- `200 OK` with system KPI summary
+- `401 Unauthorized` if token is missing/invalid
+- `403 Forbidden` if role is not `ADMIN`
 
 ---
 

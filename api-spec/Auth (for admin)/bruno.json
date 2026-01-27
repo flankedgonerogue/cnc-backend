@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "As Admin",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

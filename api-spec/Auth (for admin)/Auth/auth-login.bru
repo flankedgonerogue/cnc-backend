@@ -17,11 +17,6 @@ body:json {
   }
 }
 
-script:post-response {
-  const token = res.body.access_token
-  bru.setEnvVar("ACCESS_TOKEN", token)
-}
-
 settings {
   encodeUrl: true
   timeout: 0

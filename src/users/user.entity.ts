@@ -2,7 +2,7 @@ export interface User {
   id: string;
   email: string;
   passwordHash?: string; // Nullable for Google OAuth users
-  role?: 'THERAPIST' | 'GUARDIAN' | 'CHILD';
+  role?: 'ADMIN' | 'THERAPIST' | 'GUARDIAN' | 'CHILD';
   firstName?: string;
   lastName?: string;
   displayName?: string;
@@ -12,4 +12,5 @@ export interface User {
   lastLoginAt?: Date;
   createdAt: Date;
   updatedAt: Date;
+  deletedAt?: Date;
 }

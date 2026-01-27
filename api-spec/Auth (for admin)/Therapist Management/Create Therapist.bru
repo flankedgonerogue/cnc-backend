@@ -1,0 +1,30 @@
+meta {
+  name: Create Therapist
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{BASE_URL}}/admin/therapists
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "email": "{{$randomExampleEmail}}",
+    "password": "{{$randomPassword}}",
+    "firstName": "{{$randomBsBuzz}}",
+    "lastName": "{{$randomBsBuzz}}",
+    "clinicName": "{{$randomBsNoun}}",
+    "licenseNumber": "{{$randomBankAccount}}",
+    "specialization": "Behavioral Therapy",
+    "bio": "Clinician bio",
+    "interventionThreshold": 0.5
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

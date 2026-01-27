@@ -20,10 +20,18 @@ export class AuthService {
    * Validate user credentials for local authentication
    */
   async validateUser(email: string, password: string): Promise<any> {
-    const user = await this.usersService.findByEmail(email);
+    const user = await this.usersService.findByEmail(email, {
+      includeDeleted: true,
+    });
 
     if (!user) {
       return null;
+    }
+
+    if (user.deletedAt) {
+      throw new UnauthorizedException(
+        'This account has been deactivated. Please contact support.',
+      );
     }
 
     if (!user.passwordHash) {
@@ -55,9 +63,17 @@ export class AuthService {
   async validateOAuthUserWithStatus(profile: {
     email: string;
   }): Promise<{ user: User; isNew: boolean }> {
-    let user = await this.usersService.findByEmail(profile.email);
+    let user = await this.usersService.findByEmail(profile.email, {
+      includeDeleted: true,
+    });
 
     if (user) {
+      if (user.deletedAt) {
+        throw new UnauthorizedException(
+          'This account has been deactivated. Please contact support.',
+        );
+      }
+
       if (user.passwordHash) {
         throw new UnauthorizedException(
           'This email is already registered with a password. Please use email and password to sign in.',
@@ -78,9 +94,9 @@ export class AuthService {
     userId: string,
     role: Role,
   ): Promise<Omit<User, 'passwordHash'>> {
-    if (role === Role.THERAPIST) {
+    if (role === Role.THERAPIST || role === Role.ADMIN) {
       throw new UnauthorizedException(
-        'Therapist role cannot be assigned via this flow.',
+        'Therapist and admin roles cannot be assigned via this flow.',
       );
     }
 
@@ -95,7 +111,10 @@ export class AuthService {
     registerDto: RegisterDto,
   ): Promise<{ access_token: string; user: Omit<User, 'passwordHash'> }> {
     // Check if user already exists
-    const existingUser = await this.usersService.findByEmail(registerDto.email);
+    const existingUser = await this.usersService.findByEmail(
+      registerDto.email,
+      { includeDeleted: true },
+    );
 
     if (existingUser) {
       const conflictMessage = existingUser.passwordHash
@@ -106,9 +125,12 @@ export class AuthService {
       );
     }
 
-    if (registerDto.role === Role.THERAPIST) {
+    if (
+      registerDto.role === Role.THERAPIST ||
+      registerDto.role === Role.ADMIN
+    ) {
       throw new UnauthorizedException(
-        'Therapist role cannot be assigned via registration.',
+        'Therapist and admin roles cannot be assigned via registration.',
       );
     }
 

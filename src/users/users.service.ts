@@ -23,6 +23,7 @@ export class UsersService {
       lastLoginAt: user.lastLoginAt ?? undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+      deletedAt: user.deletedAt ?? undefined,
     };
   }
 
@@ -53,16 +54,24 @@ export class UsersService {
     return this.mapToUserEntity(created);
   }
 
-  async findByEmail(email: string): Promise<User | undefined> {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+  async findByEmail(
+    email: string,
+    options?: { includeDeleted?: boolean },
+  ): Promise<User | undefined> {
+    const includeDeleted = options?.includeDeleted ?? false;
+    const user = await this.prisma.user.findFirst({
+      where: includeDeleted ? { email } : { email, deletedAt: null },
     });
     return user ? this.mapToUserEntity(user) : undefined;
   }
 
-  async findById(id: string): Promise<User | undefined> {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
+  async findById(
+    id: string,
+    options?: { includeDeleted?: boolean },
+  ): Promise<User | undefined> {
+    const includeDeleted = options?.includeDeleted ?? false;
+    const user = await this.prisma.user.findFirst({
+      where: includeDeleted ? { id } : { id, deletedAt: null },
     });
     return user ? this.mapToUserEntity(user) : undefined;
   }
@@ -77,8 +86,21 @@ export class UsersService {
     throw new Error('Provider IDs are not stored on User records.');
   }
 
-  async findAll(): Promise<User[]> {
-    const users = await this.prisma.user.findMany();
+  async findAll(options?: { includeDeleted?: boolean }): Promise<User[]> {
+    const includeDeleted = options?.includeDeleted ?? false;
+    const users = await this.prisma.user.findMany({
+      where: includeDeleted ? {} : { deletedAt: null },
+    });
+    return users.map((user) => this.mapToUserEntity(user));
+  }
+
+  async findAdmins(options?: { includeDeleted?: boolean }): Promise<User[]> {
+    const includeDeleted = options?.includeDeleted ?? false;
+    const users = await this.prisma.user.findMany({
+      where: includeDeleted
+        ? { role: Role.ADMIN }
+        : { role: Role.ADMIN, deletedAt: null },
+    });
     return users.map((user) => this.mapToUserEntity(user));
   }
 
@@ -114,8 +136,8 @@ export class UsersService {
   }
 
   async initializeRole(userId: string, role: Role): Promise<User> {
-    if (role === Role.THERAPIST) {
-      throw new Error('Therapist role cannot be assigned here.');
+    if (role === Role.THERAPIST || role === Role.ADMIN) {
+      throw new Error('Therapist and admin roles cannot be assigned here.');
     }
 
     const updated = await this.prisma.user.updateMany({

@@ -24,9 +24,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload) {
-    const user = await this.usersService.findById(payload.sub);
+    const user = await this.usersService.findById(payload.sub, {
+      includeDeleted: true,
+    });
     if (!user) {
       throw new UnauthorizedException('User not found');
+    }
+    if (user.deletedAt) {
+      throw new UnauthorizedException('User account is deactivated');
     }
     return {
       id: user.id,
