@@ -31,7 +31,7 @@ describe('TemplatesService', () => {
         therapistId: 'tp-1',
         targetBehavior: 'Turn-taking',
         setting: 'Playground',
-        characterDetails: 'Two kids sharing a ball',
+        mainCharacter: 'Two kids sharing a ball',
         emotionalTone: StoryTone.CALM,
         promptSuggestion: 'Keep it short',
         createdAt: new Date(),
@@ -42,7 +42,7 @@ describe('TemplatesService', () => {
       const result = await service.create('user-1', {
         targetBehavior: 'Turn-taking',
         setting: 'Playground',
-        characterDetails: 'Two kids sharing a ball',
+        mainCharacter: 'Two kids sharing a ball',
         emotionalTone: StoryTone.CALM,
         promptSuggestion: 'Keep it short',
       });
@@ -62,7 +62,7 @@ describe('TemplatesService', () => {
         therapistId: 'tp-1',
         targetBehavior: 'safe',
         setting: 'safe',
-        characterDetails: 'safe',
+        mainCharacter: 'safe',
         emotionalTone: StoryTone.CALM,
         promptSuggestion: 'safe',
         createdAt: new Date(),
@@ -73,7 +73,7 @@ describe('TemplatesService', () => {
       await service.create('user-1', {
         targetBehavior: 'safe<script>alert(1)</script>',
         setting: 'safe\u0000',
-        characterDetails: ' safe ',
+        mainCharacter: ' safe ',
         emotionalTone: StoryTone.CALM,
         promptSuggestion: '\t safe ',
       });
@@ -84,7 +84,7 @@ describe('TemplatesService', () => {
             data: {
               targetBehavior?: string;
               setting?: string;
-              characterDetails?: string;
+              mainCharacter?: string;
               promptSuggestion?: string;
             };
           },
@@ -96,7 +96,7 @@ describe('TemplatesService', () => {
       }
       expect(createCall.data.targetBehavior).toBe('safe');
       expect(createCall.data.setting).toBe('safe');
-      expect(createCall.data.characterDetails).toBe('safe');
+      expect(createCall.data.mainCharacter).toBe('safe');
       expect(createCall.data.promptSuggestion).toBe('safe');
     });
 
@@ -107,7 +107,7 @@ describe('TemplatesService', () => {
         service.create('user-1', {
           targetBehavior: 'Turn-taking',
           setting: 'Playground',
-          characterDetails: 'Two kids sharing a ball',
+          mainCharacter: 'Two kids sharing a ball',
           emotionalTone: StoryTone.CALM,
           promptSuggestion: 'Keep it short',
         }),

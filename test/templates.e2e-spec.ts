@@ -6,7 +6,7 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { UsersService } from '../src/users/users.service';
 import { AuthService } from '../src/auth/auth.service';
-import { Role } from '@prisma/client';
+import { Role } from '../src/generated/prisma/client';
 import { StoryTone } from '../src/templates/enums/story-tone.enum';
 
 describe('Templates (e2e)', () => {

@@ -41,6 +41,40 @@ export class LocalDiskStorageService implements StorageService {
     return this.buildPublicUrl(`${this.avatarSubdir}/${filename}`);
   }
 
+  async uploadBuffer(
+    buffer: Buffer,
+    mimeType: string,
+    subdir: string = 'story-images',
+  ): Promise<string> {
+    if (!buffer?.length) {
+      throw new BadRequestException('Buffer is empty.');
+    }
+
+    const extension =
+      mimeType === 'image/png'
+        ? '.png'
+        : mimeType === 'audio/wav'
+          ? '.wav'
+          : '.jpg';
+    const filename = `${this.generateFileId()}${extension}`;
+    const targetDir = path.join(this.uploadsRoot, subdir);
+
+    await mkdir(targetDir, { recursive: true });
+
+    const filePath = path.join(targetDir, filename);
+    await writeFile(filePath, buffer);
+
+    return this.buildPublicUrl(`${subdir}/${filename}`);
+  }
+
+  resolveImageDiskPath(imageUrl: string): string {
+    const relativePath = this.stripBaseUrl(imageUrl);
+    if (!relativePath) {
+      return path.join(this.uploadsRoot, imageUrl);
+    }
+    return path.join(this.uploadsRoot, relativePath);
+  }
+
   async deleteFile(fileUrl: string): Promise<void> {
     if (!fileUrl) {
       return;

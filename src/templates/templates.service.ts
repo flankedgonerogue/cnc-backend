@@ -33,7 +33,7 @@ export class TemplatesService {
         therapistId: therapistProfile.id,
         targetBehavior: sanitized.targetBehavior,
         setting: sanitized.setting,
-        characterDetails: sanitized.characterDetails,
+        mainCharacter: sanitized.mainCharacter,
         emotionalTone: sanitized.emotionalTone,
         promptSuggestion: sanitized.promptSuggestion,
       },
@@ -111,8 +111,8 @@ export class TemplatesService {
     if (sanitized.setting !== undefined) {
       data.setting = sanitized.setting;
     }
-    if (sanitized.characterDetails !== undefined) {
-      data.characterDetails = sanitized.characterDetails;
+    if (sanitized.mainCharacter !== undefined) {
+      data.mainCharacter = sanitized.mainCharacter;
     }
     if (sanitized.emotionalTone !== undefined) {
       data.emotionalTone = sanitized.emotionalTone;
@@ -163,7 +163,7 @@ export class TemplatesService {
       ...dto,
       targetBehavior: this.sanitizeText(dto.targetBehavior),
       setting: this.sanitizeText(dto.setting),
-      characterDetails: this.sanitizeText(dto.characterDetails),
+      mainCharacter: this.sanitizeText(dto.mainCharacter),
       promptSuggestion: this.sanitizeText(dto.promptSuggestion),
     };
   }
