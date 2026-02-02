@@ -7,6 +7,8 @@ import { UsersModule } from './users/users.module';
 import { TemplatesModule } from './templates/templates.module';
 import { ProfilesModule } from './profiles/profiles.module';
 import { AdminModule } from './admin/admin.module';
+import { SessionsModule } from './sessions/sessions.module';
+import { StoryModule } from './story/story.module';
 
 @Module({
   imports: [
@@ -25,6 +27,8 @@ import { AdminModule } from './admin/admin.module';
     TemplatesModule,
     ProfilesModule,
     AdminModule,
+    SessionsModule,
+    StoryModule,
   ],
   controllers: [AppController],
   providers: [AppService],

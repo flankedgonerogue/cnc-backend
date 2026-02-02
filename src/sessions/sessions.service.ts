@@ -1,286 +1,279 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
-import { StoryGenerationService } from '../story-generation/story-generation.service';
-import { ImageGenerationService } from '../image-generation/image-generation.service';
-import { InitializeSessionDto } from './dto/initialize-session.dto';
-import { InitializeSessionResponseDto, SessionNodeResponseDto } from './dto/session-response.dto';
-
-interface SessionState {
-  sessionId: string;
-  visualStyle: string;
-  characterAnchor: string;
-  lastNodeText: string;
-  lastImageUrl: string;
-  turnCount: number;
-  targetBehavior: string;
-}
+import type { CreateChildProfileDto } from './dto/create-child-profile.dto';
+import type { AssignSessionDto } from './dto/assign-session.dto';
 
 @Injectable()
 export class SessionsService {
-  private readonly logger = new Logger(SessionsService.name);
-  
-  // In-memory session state cache (for visual_style, character_anchor, etc.)
-  // In production, consider using Redis for distributed systems
-  private sessionStateCache = new Map<string, SessionState>();
+  constructor(private readonly prisma: PrismaService) {}
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly storyGeneration: StoryGenerationService,
-    private readonly imageGeneration: ImageGenerationService,
-  ) {}
+  // ── Therapist: create a child profile ──────────────────────────
 
-  /**
-   * Initialize a new story session (Node 0)
-   */
-  async initializeSession(
-    dto: InitializeSessionDto,
-  ): Promise<InitializeSessionResponseDto> {
-    this.logger.log(`Initializing session for child: ${dto.childId}`);
+  async createChildProfile(therapistUserId: string, dto: CreateChildProfileDto) {
+    const therapistProfile = await this.prisma.therapistProfile.findUnique({
+      where: { userId: therapistUserId },
+      select: { id: true },
+    });
 
-    // Verify child profile exists
+    if (!therapistProfile) {
+      throw new NotFoundException('Therapist profile not found.');
+    }
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (existingUser) {
+      throw new BadRequestException('A user with this email already exists.');
+    }
+
+    const passwordHash = await bcrypt.hash('changeme123', 10);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: dto.email,
+          passwordHash,
+          role: 'CHILD',
+          firstName: dto.firstName,
+          lastName: dto.lastName ?? null,
+        },
+      });
+
+      const childProfile = await tx.childProfile.create({
+        data: {
+          userId: user.id,
+          therapistId: therapistProfile.id,
+          dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
+          interests: dto.interests ?? [],
+          triggers: dto.triggers ?? [],
+        },
+      });
+
+      return { user, childProfile };
+    });
+
+    return {
+      id: result.childProfile.id,
+      userId: result.user.id,
+      firstName: result.user.firstName,
+      lastName: result.user.lastName,
+      email: result.user.email,
+      dateOfBirth: result.childProfile.dateOfBirth,
+      interests: result.childProfile.interests,
+      triggers: result.childProfile.triggers,
+    };
+  }
+
+  // ── Therapist: list their children ─────────────────────────────
+
+  async listChildren(
+    therapistUserId: string,
+    pagination: { take?: number; skip?: number },
+  ) {
+    const therapistProfile = await this.prisma.therapistProfile.findUnique({
+      where: { userId: therapistUserId },
+      select: { id: true },
+    });
+
+    if (!therapistProfile) {
+      throw new NotFoundException('Therapist profile not found.');
+    }
+
+    return this.prisma.childProfile.findMany({
+      where: { therapistId: therapistProfile.id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+      take: pagination.take,
+      skip: pagination.skip,
+      orderBy: { id: 'desc' },
+    });
+  }
+
+  // ── Therapist: assign a session ────────────────────────────────
+
+  async assignSession(therapistUserId: string, dto: AssignSessionDto) {
+    const therapistProfile = await this.prisma.therapistProfile.findUnique({
+      where: { userId: therapistUserId },
+      select: { id: true },
+    });
+
+    if (!therapistProfile) {
+      throw new NotFoundException('Therapist profile not found.');
+    }
+
+    // Validate child belongs to this therapist
     const childProfile = await this.prisma.childProfile.findUnique({
-      where: { id: dto.childId },
+      where: { id: dto.childProfileId },
+      select: { id: true, therapistId: true },
     });
 
     if (!childProfile) {
-      throw new NotFoundException('Child profile not found');
+      throw new NotFoundException('Child profile not found.');
     }
 
-    // Step 1: Generate initial story node with LLM
-    const storyResponse = await this.storyGeneration.initializeStory({
-      childName: dto.childName,
-      childAge: dto.childAge,
-      targetBehavior: dto.targetBehavior,
-      characterName: dto.characterName,
-      setting: dto.setting,
-      emotionalTone: dto.emotionalTone,
+    if (childProfile.therapistId !== therapistProfile.id) {
+      throw new ForbiddenException('This child is not assigned to you.');
+    }
+
+    // Validate template belongs to this therapist
+    const template = await this.prisma.storyTemplate.findFirst({
+      where: {
+        id: dto.templateId,
+        deletedAt: null,
+        therapistId: therapistProfile.id,
+      },
+      select: { id: true },
     });
 
-    // Step 2: Generate initial image (Text-to-Image)
-    let imageUrl: string | undefined;
-    try {
-      imageUrl = await this.imageGeneration.generateImage(
-        storyResponse.visual_context,
-      );
-    } catch (error) {
-      this.logger.error(`Image generation failed: ${error.message}`);
-      // Continue without image if generation fails
+    if (!template) {
+      throw new NotFoundException('Template not found or not owned by you.');
     }
 
-    // Step 3: Create session in database
     const session = await this.prisma.session.create({
       data: {
-        childId: dto.childId,
+        childId: dto.childProfileId,
+        templateId: dto.templateId,
         status: 'ACTIVE',
       },
     });
 
-    // Step 4: Create first story node
-    const storyNode = await this.prisma.storyNode.create({
-      data: {
-        sessionId: session.id,
-        textContent: storyResponse.node_text,
-        imageUrl: imageUrl,
-        confidenceScore: 1.0, // Initial node always has high confidence
-        isApproved: false,
-        choices: {
-          create: storyResponse.choices.map((choice) => ({
-            text: choice.choice_text,
-            behavioralTag: choice.behavior_type,
-          })),
-        },
-      },
-      include: {
-        choices: true,
-      },
-    });
-
-    // Step 5: Cache session state for future continuations
-    this.sessionStateCache.set(session.id, {
-      sessionId: session.id,
-      visualStyle: storyResponse.visual_style,
-      characterAnchor: storyResponse.character_anchor,
-      lastNodeText: storyResponse.node_text,
-      lastImageUrl: imageUrl || '',
-      turnCount: 0,
-      targetBehavior: dto.targetBehavior,
-    });
-
-    this.logger.log(`Session initialized: ${session.id}`);
-
     return {
-      sessionId: session.id,
-      nodeId: storyNode.id,
-      node_text: storyNode.textContent,
-      image_url: storyNode.imageUrl,
-      is_ending: false,
-      visual_style: storyResponse.visual_style,
-      character_anchor: storyResponse.character_anchor,
-      choices: storyNode.choices.map((c) => ({
-        choice_text: c.text,
-        behavior_type: c.behavioralTag || 'Neutral',
-      })),
+      id: session.id,
+      childId: session.childId,
+      templateId: session.templateId,
+      status: session.status,
+      startedAt: session.startedAt,
     };
   }
 
-  /**
-   * Continue the story based on child's choice (Node 1+)
-   */
-  async makeChoice(
-    sessionId: string,
-    choiceText: string,
-  ): Promise<SessionNodeResponseDto> {
-    this.logger.log(`Processing choice for session: ${sessionId}`);
+  // ── Therapist: list sessions ───────────────────────────────────
 
-    // Step 1: Get session state from cache
-    const sessionState = this.sessionStateCache.get(sessionId);
-    if (!sessionState) {
-      throw new NotFoundException('Session state not found. Session may have expired.');
+  async listSessionsForTherapist(
+    therapistUserId: string,
+    filters: { childProfileId?: string; status?: string; take?: number; skip?: number },
+  ) {
+    const therapistProfile = await this.prisma.therapistProfile.findUnique({
+      where: { userId: therapistUserId },
+      select: { id: true },
+    });
+
+    if (!therapistProfile) {
+      throw new NotFoundException('Therapist profile not found.');
     }
 
-    // Step 2: Verify session exists and is active
+    const where: Record<string, unknown> = {
+      child: { therapistId: therapistProfile.id },
+    };
+
+    if (filters.childProfileId) {
+      where.childId = filters.childProfileId;
+    }
+
+    if (filters.status) {
+      where.status = filters.status;
+    }
+
+    return this.prisma.session.findMany({
+      where,
+      include: {
+        child: {
+          include: {
+            user: {
+              select: { firstName: true, lastName: true },
+            },
+          },
+        },
+        template: {
+          select: { targetBehavior: true, setting: true, mainCharacter: true },
+        },
+        _count: { select: { nodes: true } },
+      },
+      take: filters.take,
+      skip: filters.skip,
+      orderBy: { startedAt: 'desc' },
+    });
+  }
+
+  // ── Child: list their sessions ─────────────────────────────────
+
+  async listSessionsForChild(
+    childUserId: string,
+    filters: { status?: string; take?: number; skip?: number },
+  ) {
+    const childProfile = await this.prisma.childProfile.findUnique({
+      where: { userId: childUserId },
+      select: { id: true },
+    });
+
+    if (!childProfile) {
+      throw new NotFoundException('Child profile not found.');
+    }
+
+    const where: Record<string, unknown> = {
+      childId: childProfile.id,
+    };
+
+    if (filters.status) {
+      where.status = filters.status;
+    }
+
+    return this.prisma.session.findMany({
+      where,
+      include: {
+        template: {
+          select: { targetBehavior: true, setting: true, mainCharacter: true },
+        },
+        _count: { select: { nodes: true } },
+      },
+      take: filters.take,
+      skip: filters.skip,
+      orderBy: { startedAt: 'desc' },
+    });
+  }
+
+  // ── Session detail ─────────────────────────────────────────────
+
+  async getSessionDetail(sessionId: string) {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
       include: {
-        nodes: {
-          orderBy: { id: 'desc' },
-          take: 1,
+        template: {
+          select: { targetBehavior: true, setting: true, mainCharacter: true, emotionalTone: true },
+        },
+        child: {
           include: {
-            choices: true,
+            user: {
+              select: { firstName: true, lastName: true },
+            },
           },
+        },
+        nodes: {
+          include: { choices: true },
+          orderBy: { id: 'asc' },
+        },
+        interactions: {
+          orderBy: { timestamp: 'asc' },
         },
       },
     });
 
     if (!session) {
-      throw new NotFoundException('Session not found');
-    }
-
-    if (session.status !== 'ACTIVE') {
-      throw new BadRequestException('Session is not active');
-    }
-
-    // Step 3: Log the interaction
-    const lastNode = session.nodes[0];
-    const selectedChoice = lastNode?.choices.find((c) => c.text === choiceText);
-    
-    if (selectedChoice) {
-      await this.prisma.interaction.create({
-        data: {
-          sessionId: session.id,
-          choiceId: selectedChoice.id,
-          timeTakenMs: 0, // Frontend should track this
-        },
-      });
-    }
-
-    // Step 4: Increment turn count
-    sessionState.turnCount += 1;
-
-    // Step 5: Generate next story node with LLM
-    const storyResponse = await this.storyGeneration.continueStory({
-      targetBehavior: sessionState.targetBehavior,
-      lastNodeText: sessionState.lastNodeText,
-      childChoice: choiceText,
-      turnCount: sessionState.turnCount,
-      visualStyle: sessionState.visualStyle,
-      characterAnchor: sessionState.characterAnchor,
-    });
-
-    // Step 6: Generate image (Image-to-Image for consistency)
-    let imageUrl: string | undefined;
-    try {
-      if (sessionState.lastImageUrl) {
-        imageUrl = await this.imageGeneration.editImage(
-          sessionState.lastImageUrl,
-          storyResponse.visual_context,
-          0.65, // Balance between consistency and prompt adherence
-        );
-      } else {
-        // Fallback to text-to-image if no previous image
-        imageUrl = await this.imageGeneration.generateImage(
-          storyResponse.visual_context,
-        );
-      }
-    } catch (error) {
-      this.logger.error(`Image generation failed: ${error.message}`);
-    }
-
-    // Step 7: Create new story node
-    const storyNode = await this.prisma.storyNode.create({
-      data: {
-        sessionId: session.id,
-        textContent: storyResponse.node_text,
-        imageUrl: imageUrl,
-        confidenceScore: 0.95,
-        isApproved: false,
-        choices: {
-          create: storyResponse.choices.map((choice) => ({
-            text: choice.choice_text,
-            behavioralTag: choice.behavior_type,
-          })),
-        },
-      },
-      include: {
-        choices: true,
-      },
-    });
-
-    // Step 8: Update session state cache
-    sessionState.lastNodeText = storyResponse.node_text;
-    sessionState.lastImageUrl = imageUrl || sessionState.lastImageUrl;
-
-    // Step 9: Handle ending
-    if (storyResponse.is_ending) {
-      await this.prisma.session.update({
-        where: { id: sessionId },
-        data: {
-          status: 'COMPLETED',
-          endedAt: new Date(),
-        },
-      });
-      
-      // Remove from cache
-      this.sessionStateCache.delete(sessionId);
-      
-      this.logger.log(`Session completed: ${sessionId}`);
-    }
-
-    return {
-      sessionId: session.id,
-      nodeId: storyNode.id,
-      node_text: storyNode.textContent,
-      image_url: storyNode.imageUrl,
-      is_ending: storyResponse.is_ending,
-      choices: storyNode.choices.map((c) => ({
-        choice_text: c.text,
-        behavior_type: c.behavioralTag || 'Neutral',
-      })),
-    };
-  }
-
-  /**
-   * Get session details
-   */
-  async getSession(sessionId: string) {
-    const session = await this.prisma.session.findUnique({
-      where: { id: sessionId },
-      include: {
-        nodes: {
-          include: {
-            choices: true,
-          },
-          orderBy: {
-            id: 'asc',
-          },
-        },
-        interactions: true,
-        child: true,
-      },
-    });
-
-    if (!session) {
-      throw new NotFoundException('Session not found');
+      throw new NotFoundException('Session not found.');
     }
 
     return session;

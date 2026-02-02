@@ -1,20 +1,13 @@
 import { Module } from '@nestjs/common';
+import { PrismaModule } from '../prisma/prisma.module';
 import { SessionsController } from './sessions.controller';
 import { SessionsService } from './sessions.service';
-import { PrismaModule } from '../prisma/prisma.module';
-import { StoryGenerationService } from '../story-generation/story-generation.service';
-import { ImageGenerationService } from '../image-generation/image-generation.service';
-import { PromptsService } from '../prompts/prompts.service';
+import { SessionAccessGuard } from './guards/session-access.guard';
 
 @Module({
   imports: [PrismaModule],
   controllers: [SessionsController],
-  providers: [
-    SessionsService,
-    StoryGenerationService,
-    ImageGenerationService,
-    PromptsService,
-  ],
+  providers: [SessionsService, SessionAccessGuard],
   exports: [SessionsService],
 })
 export class SessionsModule {}
