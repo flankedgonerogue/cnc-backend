@@ -10,10 +10,18 @@ This directory contains the current, actively maintained guides for the backend 
 - **Auth + Admin API Guide** (`auth/endpoints.md`)
   Endpoint reference, request/response examples, auth flows, admin management routes, and security notes.
 
+- **Story API Guide** (`story/endpoints.md`)
+  Story generation endpoints, request/response examples, and access rules.
+
+- **Session API Guide** (`session/endpoints.md`)
+  Session and child profile endpoints, request/response examples, and access rules.
+
 ## Suggested Reading Order
 
 1. `QUICK_START.md`
 2. `auth/endpoints.md`
+3. `story/endpoints.md`
+4. `session/endpoints.md`
 
 ## Notes
 

@@ -16,38 +16,12 @@ import { User } from '../common/decorators/user.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { SessionAccessGuard } from './guards/session-access.guard';
 import { SessionsService } from './sessions.service';
-import { CreateChildProfileDto } from './dto/create-child-profile.dto';
 import { AssignSessionDto } from './dto/assign-session.dto';
 
 @Controller('sessions')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class SessionsController {
   constructor(private readonly sessionsService: SessionsService) {}
-
-  // ── Child profile management ───────────────────────────────────
-
-  @Post('children')
-  @Roles(Role.THERAPIST)
-  @HttpCode(HttpStatus.CREATED)
-  async createChild(
-    @User('id') userId: string,
-    @Body() dto: CreateChildProfileDto,
-  ) {
-    return this.sessionsService.createChildProfile(userId, dto);
-  }
-
-  @Get('children')
-  @Roles(Role.THERAPIST)
-  async listChildren(
-    @User('id') userId: string,
-    @Query('take') take?: string,
-    @Query('skip') skip?: string,
-  ) {
-    return this.sessionsService.listChildren(userId, {
-      take: this.parsePositiveInt(take, 20),
-      skip: this.parsePositiveInt(skip, 0),
-    });
-  }
 
   // ── Session assignment ─────────────────────────────────────────
 

@@ -1,108 +1,14 @@
 import {
-  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
-import type { CreateChildProfileDto } from './dto/create-child-profile.dto';
 import type { AssignSessionDto } from './dto/assign-session.dto';
 
 @Injectable()
 export class SessionsService {
   constructor(private readonly prisma: PrismaService) {}
-
-  // ── Therapist: create a child profile ──────────────────────────
-
-  async createChildProfile(therapistUserId: string, dto: CreateChildProfileDto) {
-    const therapistProfile = await this.prisma.therapistProfile.findUnique({
-      where: { userId: therapistUserId },
-      select: { id: true },
-    });
-
-    if (!therapistProfile) {
-      throw new NotFoundException('Therapist profile not found.');
-    }
-
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
-
-    if (existingUser) {
-      throw new BadRequestException('A user with this email already exists.');
-    }
-
-    const passwordHash = await bcrypt.hash('changeme123', 10);
-
-    const result = await this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email: dto.email,
-          passwordHash,
-          role: 'CHILD',
-          firstName: dto.firstName,
-          lastName: dto.lastName ?? null,
-        },
-      });
-
-      const childProfile = await tx.childProfile.create({
-        data: {
-          userId: user.id,
-          therapistId: therapistProfile.id,
-          dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
-          interests: dto.interests ?? [],
-          triggers: dto.triggers ?? [],
-        },
-      });
-
-      return { user, childProfile };
-    });
-
-    return {
-      id: result.childProfile.id,
-      userId: result.user.id,
-      firstName: result.user.firstName,
-      lastName: result.user.lastName,
-      email: result.user.email,
-      dateOfBirth: result.childProfile.dateOfBirth,
-      interests: result.childProfile.interests,
-      triggers: result.childProfile.triggers,
-    };
-  }
-
-  // ── Therapist: list their children ─────────────────────────────
-
-  async listChildren(
-    therapistUserId: string,
-    pagination: { take?: number; skip?: number },
-  ) {
-    const therapistProfile = await this.prisma.therapistProfile.findUnique({
-      where: { userId: therapistUserId },
-      select: { id: true },
-    });
-
-    if (!therapistProfile) {
-      throw new NotFoundException('Therapist profile not found.');
-    }
-
-    return this.prisma.childProfile.findMany({
-      where: { therapistId: therapistProfile.id },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
-      },
-      take: pagination.take,
-      skip: pagination.skip,
-      orderBy: { id: 'desc' },
-    });
-  }
 
   // ── Therapist: assign a session ────────────────────────────────
 
@@ -165,7 +71,12 @@ export class SessionsService {
 
   async listSessionsForTherapist(
     therapistUserId: string,
-    filters: { childProfileId?: string; status?: string; take?: number; skip?: number },
+    filters: {
+      childProfileId?: string;
+      status?: string;
+      take?: number;
+      skip?: number;
+    },
   ) {
     const therapistProfile = await this.prisma.therapistProfile.findUnique({
       where: { userId: therapistUserId },
@@ -253,7 +164,12 @@ export class SessionsService {
       where: { id: sessionId },
       include: {
         template: {
-          select: { targetBehavior: true, setting: true, mainCharacter: true, emotionalTone: true },
+          select: {
+            targetBehavior: true,
+            setting: true,
+            mainCharacter: true,
+            emotionalTone: true,
+          },
         },
         child: {
           include: {
