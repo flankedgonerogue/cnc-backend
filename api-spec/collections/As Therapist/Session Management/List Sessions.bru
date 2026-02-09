@@ -1,0 +1,29 @@
+meta {
+  name: List Sessions
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{BASE_URL}}/sessions?childProfileId={{CHILD_PROFILE_ID}}&status=ACTIVE&take=20&skip=0
+  body: none
+  auth: inherit
+}
+
+params:query {
+  childProfileId: {{CHILD_PROFILE_ID}}
+  status: ACTIVE
+  take: 20
+  skip: 0
+}
+
+script:post-response {
+  if (res.body.length != 0) {
+    bru.setVar("SESSION_ID",res.body[0].id)
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

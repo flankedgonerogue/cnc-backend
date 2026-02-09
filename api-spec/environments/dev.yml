@@ -21,10 +21,10 @@ variables:
   - name: ACCESS_TOKEN_ADMIN
     value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbWxoMWczZm4wMDAwbzZxNGtwa3Q3anQyIiwiZW1haWwiOiJhZG1pbkBleGFtcGxlLmNvbSIsInJvbGUiOiJBRE1JTiIsImlhdCI6MTc3MDc1NTcxMSwiZXhwIjoxNzcxMzYwNTExfQ.ECKZ7Y6jDMdzZPD5jA95Qd70FLW_dgAyL0mKvLCndfQ
   - name: ACCESS_TOKEN_THERAPIST
-    value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbWxoMWczZ28wMDAybzZxNHpwc3gxOTR5IiwiZW1haWwiOiJ0aGVyYXBpc3RAZXhhbXBsZS5jb20iLCJyb2xlIjoiVEhFUkFQSVNUIiwiaWF0IjoxNzcwNzU1ODA4LCJleHAiOjE3NzEzNjA2MDh9.gI6IS3HRNtXBso1P9fuIoVdg2Nq54KYOrgHXmC6X_oU
+    value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbWxoMWczZ28wMDAybzZxNHpwc3gxOTR5IiwiZW1haWwiOiJ0aGVyYXBpc3RAZXhhbXBsZS5jb20iLCJyb2xlIjoiVEhFUkFQSVNUIiwiaWF0IjoxNzcwNzkzMDYzLCJleHAiOjE3NzEzOTc4NjN9.LLh7cJxaZ50AGOqVJFu6Mv3PYx3wRSAUxJYfPFBSzos
   - name: ACCESS_TOKEN_GUARDIAN
     value: ""
   - name: ACCESS_TOKEN_CHILD
-    value: ""
+    value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbWxoMWczZ3UwMDAzbzZxNDcya3J6dWJsIiwiZW1haWwiOiJjaGlsZEBleGFtcGxlLmNvbSIsInJvbGUiOiJDSElMRCIsImlhdCI6MTc3MDc5MjIzMCwiZXhwIjoxNzcxMzk3MDMwfQ.LreWvsX9nktbAeswF9BUSYBdrmqn7oOhxP8czsl4Clg
   - name: BASE_URL
     value: http://localhost:3000

@@ -1,0 +1,21 @@
+meta {
+  name: List Children
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{BASE_URL}}/sessions/children?take=20&skip=0
+  body: none
+  auth: inherit
+}
+
+params:query {
+  take: 20
+  skip: 0
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

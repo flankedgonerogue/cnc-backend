@@ -14,6 +14,8 @@ collections:
     path: "Auth (for admin)"
   - name: "As Therapist"
     path: "collections/As Therapist"
+  - name: "As Child"
+    path: "collections/As Child"
 
 specs:
 

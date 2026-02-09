@@ -1,0 +1,14 @@
+auth {
+  mode: bearer
+}
+
+auth:bearer {
+  token: {{ACCESS_TOKEN_CHILD}}
+}
+
+script:post-response {
+  const token = res.body.access_token
+  if (token) {
+    bru.setGlobalEnvVar("ACCESS_TOKEN_CHILD", token)
+  }
+}

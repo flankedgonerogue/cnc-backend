@@ -7,11 +7,7 @@ meta {
 post {
   url: {{BASE_URL}}/templates
   body: json
-  auth: bearer
-}
-
-auth:bearer {
-  token: {{ACCESS_TOKEN}}
+  auth: inherit
 }
 
 body:json {

@@ -1,0 +1,23 @@
+meta {
+  name: Assign Session
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{BASE_URL}}/sessions
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "childProfileId": "{{CHILD_PROFILE_ID}}",
+    "templateId": "{{TEMPLATE_ID}}"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
