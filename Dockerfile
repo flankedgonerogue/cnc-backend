@@ -42,4 +42,4 @@ COPY --from=builder --chown=node:node /app/prisma ./prisma
 EXPOSE 3000
 
 # Start the application
-CMD ["node", "dist/main"]
+CMD ["node", "dist/src/main.js"]
