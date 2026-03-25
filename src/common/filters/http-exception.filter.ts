@@ -6,19 +6,28 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { GqlContextType, GqlExceptionFilter } from '@nestjs/graphql';
 import { Prisma } from '../../generated/prisma/client';
 import { Request, Response } from 'express';
 
 type PrismaKnownError = Prisma.PrismaClientKnownRequestError;
 
 @Catch()
-export class HttpExceptionFilter implements ExceptionFilter {
+export class HttpExceptionFilter
+  implements ExceptionFilter, GqlExceptionFilter
+{
   catch(exception: unknown, host: ArgumentsHost) {
+    Logger.debug(exception);
+
+    // If it's a GraphQL request, NestJS handles the GraphQL-formatted errors natively.
+    // We just return the exception to let the GraphQL module process it.
+    if (host.getType<GqlContextType>() === 'graphql') {
+      throw exception;
+    }
+
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
-
-    Logger.debug(exception);
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();

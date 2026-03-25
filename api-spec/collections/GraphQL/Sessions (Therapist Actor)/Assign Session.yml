@@ -1,0 +1,33 @@
+info:
+  name: Assign Session
+  type: graphql
+  seq: 1
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      mutation AssignSession($dto: AssignSessionDto!) {
+        assignSession(assignSessionInput: $dto) {
+          id
+          childId
+          templateId
+          status
+          startedAt
+        }
+      }
+    variables: |
+      {
+        "dto": {
+          "childProfileId": "cmo1mpfzx00035oq4xfv3xczt",
+          "templateId": "cmo1ts7v90000xoq4e05gqjwm"
+        }
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,42 @@
+info:
+  name: Login
+  type: graphql
+  seq: 1
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      mutation Login($email: String!, $password: String!) {
+        login(loginInput: { email: $email, password: $password }) {
+          access_token
+          user {
+            id
+            email
+            role
+            firstName
+            lastName
+            displayName
+          }
+        }
+      }
+    variables: |-
+      {
+        "email": "{{THERAPIST_EMAIL}}",
+        "password": "{{DEFAULT_PASSWORD}}"
+      }
+  auth: inherit
+
+runtime:
+  scripts:
+    - type: after-response
+      code: |-
+        const token = res.body.data.login.access_token;
+        bru.setVar("TOKEN", token)
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

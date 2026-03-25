@@ -1,0 +1,28 @@
+info:
+  name: List Sessions
+  type: graphql
+  seq: 1
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      query MySessions($status: String, $take: Int, $skip: Int) {
+        mySessions(status: $status, take: $take, skip: $skip) {
+          id
+          status
+          startedAt
+          template {
+            targetBehavior
+            mainCharacter
+          }
+        }
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

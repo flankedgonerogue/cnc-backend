@@ -16,6 +16,8 @@ collections:
     path: "collections/As Therapist"
   - name: "As Child"
     path: "collections/As Child"
+  - name: "GraphQL"
+    path: "collections/GraphQL"
 
 specs:
 

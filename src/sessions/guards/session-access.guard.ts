@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { GqlExecutionContext } from '@nestjs/graphql';
 import { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
@@ -15,9 +16,19 @@ export class SessionAccessGuard implements CanActivate {
   constructor(private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<RequestWithUser>();
-    const user = request.user;
-    const sessionId = request.params?.id as string | undefined;
+    let user: AuthenticatedUser | undefined;
+    let sessionId: string | undefined;
+
+    if (context.getType() === 'http') {
+      const request = context.switchToHttp().getRequest<RequestWithUser>();
+      user = request.user;
+      sessionId = request.params?.id as string | undefined;
+    } else if ((context.getType() as string) === 'graphql') {
+      const ctx = GqlExecutionContext.create(context);
+      user = ctx.getContext().req?.user;
+      const args = ctx.getArgs();
+      sessionId = args.id || args.sessionId;
+    }
 
     if (!user?.id || !sessionId) {
       throw new ForbiddenException('Access denied.');
@@ -45,7 +56,10 @@ export class SessionAccessGuard implements CanActivate {
     }
 
     // Therapist accessing their child's session
-    if (user.role === 'THERAPIST' && session.child.therapist.userId === user.id) {
+    if (
+      user.role === 'THERAPIST' &&
+      session.child.therapist.userId === user.id
+    ) {
       return true;
     }
 

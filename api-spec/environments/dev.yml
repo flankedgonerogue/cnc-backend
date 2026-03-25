@@ -13,18 +13,18 @@ variables:
   - name: ADMIN_PASSWORD
     value: test123456
   - name: THERAPIST_PROFILE_ID
-    value: cmlh1g3h20004o6q40myx1tgp
+    value: cmo1mpg4400045oq4vy2d8ka7
   - name: GUARDIAN_PROFILE_ID
-    value: cmlh1g3he0005o6q4v3474845
+    value: cmo1mpghf00055oq49cesy44n
   - name: CHILD_PROFILE_ID
-    value: cmlh1g3hm0006o6q48fxs03i7
+    value: cmo1mpgug00065oq4lg8b69pj
   - name: ACCESS_TOKEN_ADMIN
     value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbWxoMWczZm4wMDAwbzZxNGtwa3Q3anQyIiwiZW1haWwiOiJhZG1pbkBleGFtcGxlLmNvbSIsInJvbGUiOiJBRE1JTiIsImlhdCI6MTc3MDc1NTcxMSwiZXhwIjoxNzcxMzYwNTExfQ.ECKZ7Y6jDMdzZPD5jA95Qd70FLW_dgAyL0mKvLCndfQ
   - name: ACCESS_TOKEN_THERAPIST
-    value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbWxoMWczZ28wMDAybzZxNHpwc3gxOTR5IiwiZW1haWwiOiJ0aGVyYXBpc3RAZXhhbXBsZS5jb20iLCJyb2xlIjoiVEhFUkFQSVNUIiwiaWF0IjoxNzcwNzkzMDYzLCJleHAiOjE3NzEzOTc4NjN9.LLh7cJxaZ50AGOqVJFu6Mv3PYx3wRSAUxJYfPFBSzos
+    value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbW8xbXBmdmEwMDAyNW9xNHJmaHZlMDZ0IiwiZW1haWwiOiJ0aGVyYXBpc3RAZXhhbXBsZS5jb20iLCJyb2xlIjoiVEhFUkFQSVNUIiwiaWF0IjoxNzc2MzUzMjc2LCJleHAiOjE3NzY5NTgwNzZ9.EQ616MBTZxIqoQ-vl46TnNMgd8jxRMkflCVWuy_1Epg
   - name: ACCESS_TOKEN_GUARDIAN
     value: ""
   - name: ACCESS_TOKEN_CHILD
-    value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbWxoMWczZ3UwMDAzbzZxNDcya3J6dWJsIiwiZW1haWwiOiJjaGlsZEBleGFtcGxlLmNvbSIsInJvbGUiOiJDSElMRCIsImlhdCI6MTc3MDc5MjIzMCwiZXhwIjoxNzcxMzk3MDMwfQ.LreWvsX9nktbAeswF9BUSYBdrmqn7oOhxP8czsl4Clg
+    value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbW8xbXBmengwMDAzNW9xNHhmdjN4Y3p0IiwiZW1haWwiOiJjaGlsZEBleGFtcGxlLmNvbSIsInJvbGUiOiJDSElMRCIsImlhdCI6MTc3NjM1MzI1NywiZXhwIjoxNzc2OTU4MDU3fQ.nsL0Zh2q5QopoodRyuqW_PZlyD6Zc6sA58LtLPkkN_o
   - name: BASE_URL
     value: http://localhost:3000
