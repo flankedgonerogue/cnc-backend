@@ -1,0 +1,40 @@
+info:
+  name: Create Template
+  type: graphql
+  seq: 1
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      mutation CreateTemplate($createData: CreateTemplateDto!) {
+        createTemplate(createTemplateInput: $createData) {
+          id
+          targetBehavior
+          setting
+          mainCharacter
+          emotionalTone
+          visualStyle
+          promptSuggestion
+          createdAt
+        }
+      }
+    variables: |
+      {
+        "createData": {
+          "targetBehavior": "Sharing toys",
+          "setting": "A sunny park",
+          "mainCharacter": "Leo the Lion",
+          "emotionalTone": "ENCOURAGING",
+          "promptSuggestion": "Leo learns to share his favorite ball.",
+          "visualStyle": "Cartoon style, bright colors"
+        }
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

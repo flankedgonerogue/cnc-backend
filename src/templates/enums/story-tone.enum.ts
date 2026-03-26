@@ -1,3 +1,5 @@
+import { registerEnumType } from '@nestjs/graphql';
+
 export enum StoryTone {
   CALM = 'CALM',
   ENCOURAGING = 'ENCOURAGING',
@@ -5,3 +7,7 @@ export enum StoryTone {
   EMPATHETIC = 'EMPATHETIC',
   NEUTRAL = 'NEUTRAL',
 }
+
+registerEnumType(StoryTone, {
+  name: 'StoryTone',
+});

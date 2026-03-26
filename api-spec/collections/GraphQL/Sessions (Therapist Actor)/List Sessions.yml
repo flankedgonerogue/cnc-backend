@@ -1,0 +1,31 @@
+info:
+  name: List Sessions
+  type: graphql
+  seq: 2
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      query ListSessions($childProfileId: String, $status: String, $take: Int, $skip: Int) {
+        listSessions(childProfileId: $childProfileId, status: $status, take: $take, skip: $skip) {
+          id
+          status
+          startedAt
+          child {
+            id
+            user {
+              firstName
+              lastName
+            }
+          }
+        }
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,27 @@
+info:
+  name: Verify
+  type: graphql
+  seq: 4
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      query VerifyToken {
+        verifyToken {
+          valid
+          user {
+            id
+            email
+            role
+          }
+        }
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,43 @@
+info:
+  name: Get Session Details
+  type: graphql
+  seq: 3
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      query GetSession($id: String!) {
+        session(id: $id) {
+          id
+          status
+          startedAt
+          child {
+            id
+          }
+          template {
+            targetBehavior
+            emotionalTone
+          }
+          nodes {
+            id
+            textContent
+            choices {
+              id
+              text
+            }
+          }
+        }
+      }
+    variables: |
+      {
+        "id": "cmo1my01y000201obdhcc8qzb"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,24 @@
+info:
+  name: Remove Template
+  type: graphql
+  seq: 5
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      mutation RemoveTemplate($id: String!) {
+        removeTemplate(id: $id)
+      }
+    variables: |-
+      {
+        "id": "cmo1mwr51000101obwkwm2fcr"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -11,10 +11,20 @@ post {
 }
 
 body:json {
-  {
-    "email": "{{THERAPIST_EMAIL}}",
-    "password": "{{DEFAULT_PASSWORD}}"
+  mutation Login($email: String!, $password: String!) {
+    login(loginInput: { email: $email, password: $password }) {
+      access_token
+      user {
+        id
+        email
+        role
+        firstName
+        lastName
+        displayName
+      }
+    }
   }
+  
 }
 
 settings {
