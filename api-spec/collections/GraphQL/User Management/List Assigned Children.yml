@@ -1,0 +1,35 @@
+info:
+  name: List Assigned Children
+  type: graphql
+  seq: 6
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      query ListAssignedChildren {
+        myChildren {
+          id
+          email
+          role
+          firstName
+          lastName
+          displayName
+          avatarUrl
+          childProfile {
+            id
+            therapistId
+            guardianId
+          }
+        }
+      }
+  auth:
+    type: bearer
+    token: "{{ACCESS_TOKEN_THERAPIST}}"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

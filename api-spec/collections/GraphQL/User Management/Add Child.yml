@@ -1,0 +1,44 @@
+info:
+  name: Add Child
+  type: graphql
+  seq: 7
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      mutation AddChild($input: CreateChildInput!) {
+        addChild(createChildInput: $input) {
+          id
+          email
+          role
+          firstName
+          lastName
+          displayName
+          childProfile {
+            id
+            therapistId
+            guardianId
+          }
+        }
+      }
+    variables: |
+      {
+        "input": {
+          "email": "child@example.com",
+          "password": "test123456",
+          "therapistId": "{{THERAPIST_PROFILE_ID}}",
+          "firstName": "Test",
+          "lastName": "Child"
+        }
+      }
+  auth:
+    type: bearer
+    token: "{{ACCESS_TOKEN_GUARDIAN}}"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

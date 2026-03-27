@@ -1,8 +1,9 @@
-import { Injectable, ConflictException } from '@nestjs/common';
+import { Injectable, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Role, User as PrismaUser } from '../generated/prisma/client';
 import { User } from './user.entity';
 import { UpdateUserInput } from './dto/update-user.input';
+import { CreateChildInput } from './dto/create-child.input';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -119,6 +120,21 @@ export class UsersService {
     return users.map((user) => this.mapToUserEntity(user));
   }
 
+  async findTherapists(options?: { includeDeleted?: boolean }): Promise<User[]> {
+    const includeDeleted = options?.includeDeleted ?? false;
+    const users = await this.prisma.user.findMany({
+      where: includeDeleted
+        ? { role: Role.THERAPIST }
+        : { role: Role.THERAPIST, deletedAt: null },
+      include: {
+        therapistProfile: true,
+        guardianProfile: true,
+        childProfile: true,
+      },
+    });
+    return users.map((user) => this.mapToUserEntity(user));
+  }
+
   async findAdmins(options?: { includeDeleted?: boolean }): Promise<User[]> {
     const includeDeleted = options?.includeDeleted ?? false;
     const users = await this.prisma.user.findMany({
@@ -226,6 +242,99 @@ export class UsersService {
     }
 
     return this.mapToUserEntity(user);
+  }
+
+  async createChildForGuardian(
+    guardianUserId: string,
+    input: CreateChildInput,
+  ): Promise<User> {
+    const guardian = await this.prisma.guardianProfile.findUnique({
+      where: { userId: guardianUserId },
+      include: { child: true },
+    });
+    if (!guardian) {
+      throw new ForbiddenException('Guardian profile not found.');
+    }
+    if (guardian.child) {
+      throw new ConflictException('Guardian already has an assigned child.');
+    }
+
+    const therapist = await this.prisma.therapistProfile.findUnique({
+      where: { id: input.therapistId },
+    });
+    if (!therapist) {
+      throw new NotFoundException('Therapist not found.');
+    }
+
+    const existing = await this.prisma.user.findFirst({
+      where: { email: input.email },
+    });
+    if (existing) {
+      throw new ConflictException(`User with email ${input.email} already exists.`);
+    }
+
+    const passwordHash = await bcrypt.hash(input.password, 10);
+
+    const user = await this.prisma.user.create({
+      data: {
+        email: input.email,
+        passwordHash,
+        role: Role.CHILD,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        displayName:
+          input.firstName || input.lastName
+            ? `${input.firstName ?? ''} ${input.lastName ?? ''}`.trim()
+            : undefined,
+        childProfile: {
+          create: {
+            therapistId: input.therapistId,
+            guardianId: guardian.id,
+          },
+        },
+      },
+      include: {
+        therapistProfile: true,
+        guardianProfile: true,
+        childProfile: true,
+      },
+    });
+
+    return this.mapToUserEntity(user);
+  }
+
+  async findChildByGuardian(guardianUserId: string): Promise<User | undefined> {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        deletedAt: null,
+        childProfile: {
+          guardian: { userId: guardianUserId },
+        },
+      },
+      include: {
+        therapistProfile: true,
+        guardianProfile: true,
+        childProfile: true,
+      },
+    });
+    return user ? this.mapToUserEntity(user) : undefined;
+  }
+
+  async findChildrenByTherapist(therapistUserId: string): Promise<User[]> {
+    const users = await this.prisma.user.findMany({
+      where: {
+        deletedAt: null,
+        childProfile: {
+          therapist: { userId: therapistUserId },
+        },
+      },
+      include: {
+        therapistProfile: true,
+        guardianProfile: true,
+        childProfile: true,
+      },
+    });
+    return users.map((user) => this.mapToUserEntity(user));
   }
 
   async validatePassword(
