@@ -130,8 +130,9 @@ model Session {
   startedAt DateTime      @default(now())
   endedAt   DateTime?
 
-  nodes        StoryNode[]
-  interactions Interaction[]
+  nodes              StoryNode[]
+  interactions       Interaction[]
+  behavioralAnalytics BehavioralAnalytics?
 }
 
 enum SessionStatus {
@@ -153,7 +154,8 @@ model StoryNode {
   confidenceScore Float // CSE metric (0.0 - 1.0) [cite: 451, 582]
   isApproved      Boolean @default(false) // Therapist approval [cite: 418]
 
-  choices Choice[]
+  choices      Choice[]
+  interactions Interaction[] // Reference to choices made on this node
 }
 
 // Choices: Behavioral options presented to the child [cite: 252, 391]
@@ -174,9 +176,60 @@ model Interaction {
   session   Session @relation(fields: [sessionId], references: [id])
   choiceId  String
   choice    Choice  @relation(fields: [choiceId], references: [id])
+  nodeId    String? // Reference to the node this choice was made on
+  node      StoryNode? @relation(fields: [nodeId], references: [id])
 
-  timeTakenMs Int // Engagement metric [cite: 631]
-  timestamp   DateTime @default(now())
+  // Decision timing and engagement
+  timeTakenMs       Int // Time to make choice in milliseconds [cite: 631]
+  timestamp         DateTime @default(now())
+  
+  // Behavioral analytics
+  choiceSequenceNum Int // Position in session (1st, 2nd, 3rd choice, etc.)
+  behavioralPattern String? // e.g., "Positive", "Negative", "Mixed" - derived from Choice.behavioralTag
+  
+  // Generated content quality metrics
+  nodeConfidenceScore Float? // CSE confidence of generated response node
+  nodeApprovedByTherapist Boolean @default(false) // Therapist review flag
+  
+  // Session context at time of choice
+  turnNumber Int // Which turn this choice occurred in
+  sessionDuration Int? // Total session duration up to this point (ms)
+}
+
+// BehavioralAnalytics: Aggregated analytics per session for therapist review
+model BehavioralAnalytics {
+  id           String  @id @default(cuid())
+  sessionId    String  @unique
+  session      Session @relation(fields: [sessionId], references: [id])
+  
+  // Choice distribution
+  totalChoices              Int @default(0)
+  positiveChoices           Int @default(0)
+  negativeChoices           Int @default(0)
+  neutralChoices            Int @default(0)
+  
+  // Timing metrics
+  avgTimeTakenMs            Float @default(0)
+  minTimeTakenMs            Int?
+  maxTimeTakenMs            Int?
+  decisionSpeedTrend        String? // "Fast", "Moderate", "Slow", "Variable"
+  
+  // Pattern analysis
+  positiveChoicePattern     String? // e.g., "Consistent", "Improving", "Declining"
+  hasAbandonmentRisk        Boolean @default(false) // If session paused/quit early
+  engagementScore           Float @default(0.5) // 0.0-1.0 based on choices + timing
+  
+  // Quality metrics
+  avgNodeConfidenceScore    Float @default(0)
+  therapistApprovedNodes    Int @default(0)
+  flaggedForReview          Boolean @default(false)
+  
+  // Insights
+  dominantBehaviorPattern   String? // Most frequent choice type
+  notesForTherapist         String? // Summarized behavioral insights
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // Reward: Gamification elements [cite: 393, 638]

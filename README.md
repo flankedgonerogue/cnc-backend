@@ -95,6 +95,13 @@ The server runs at `http://localhost:3000`.
 | POST | `/sessions/choice` | Make choice & continue story | ✅ GUARDIAN/CHILD |
 | GET | `/sessions/:id` | Get session details | ✅ JWT |
 
+### Story (AI Narrative Generation)
+| Method | Endpoint | Description | Auth |
+| --- | --- | --- | --- |
+| POST | `/story/start` | Initialize story with session | ✅ THERAPIST/CHILD |
+| POST | `/story/continue` | Continue story with choice | ✅ THERAPIST/CHILD |
+| GET | `/story/:sessionId/analytics` | Get behavioral analytics | ✅ THERAPIST/CHILD |
+
 ## Scripts
 
 ```/dev/null/README.md#L1-12

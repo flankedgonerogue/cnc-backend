@@ -32,7 +32,7 @@ graphql:
       }
     variables: |
       {
-        "id": "cmo1my01y000201obdhcc8qzb"
+        "id": "cmo8cscia0000doq4mj4xjgfa"
       }
   auth: inherit
 

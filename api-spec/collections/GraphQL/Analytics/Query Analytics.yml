@@ -1,0 +1,72 @@
+info:
+  name: Query Analytics
+  type: graphql
+  seq: 1
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      query GetSessionBehavioralAnalytics($sessionId: String!) {
+        getSessionBehavioralAnalytics(sessionId: $sessionId) {
+          analytics {
+            id
+            sessionId
+            totalChoices
+            positiveChoices
+            negativeChoices
+            neutralChoices
+            avgTimeTakenMs
+            minTimeTakenMs
+            maxTimeTakenMs
+            decisionSpeedTrend
+            positiveChoicePattern
+            engagementScore
+            avgNodeConfidenceScore
+            therapistApprovedNodes
+            dominantBehaviorPattern
+            flaggedForReview
+            notesForTherapist
+            createdAt
+            updatedAt
+          }
+          interactions {
+            id
+            choiceSequenceNum
+            behavioralPattern
+            timeTakenMs
+            nodeConfidenceScore
+            turnNumber
+            sessionDuration
+            timestamp
+            choice {
+              text
+              behavioralTag
+            }
+            node {
+              textContent
+              confidenceScore
+            }
+          }
+          summary {
+            sessionId
+            totalInteractions
+            sessionDuration
+            overallEngagement
+            therapistNotesForReview
+            flaggedForTherapistReview
+          }
+        }
+      }
+    variables: |
+      {
+        "sessionId": "cmo8c6vz300013sq4k93qmge0"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

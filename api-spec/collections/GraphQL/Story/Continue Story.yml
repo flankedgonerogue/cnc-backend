@@ -1,0 +1,45 @@
+info:
+  name: Continue Story
+  type: graphql
+  seq: 2
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      mutation ContinueStory(
+        $sessionId: String!
+        $choiceId: String!
+        $timeTakenMs: Int!
+      ) {
+        continueStory(
+          sessionId: $sessionId
+          choiceId: $choiceId
+          timeTakenMs: $timeTakenMs
+        ) {
+          sessionId
+          isEnding
+          node {
+            textContent
+            choices {
+              id
+              text
+            }
+          }
+        }
+      }
+    variables: |2-
+      
+       {
+         "sessionId": "cmo8cscia0000doq4mj4xjgfa",
+         "choiceId": "cmo8dbmqc0003cgq4ig17akom",
+         "timeTakenMs": 5000.0
+       }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

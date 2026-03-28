@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { readFile } from 'node:fs/promises';
 import { PrismaService } from '../prisma/prisma.service';
 import { LocalDiskStorageService } from '../storage/storage.module';
@@ -29,25 +30,34 @@ import type { StartStoryDto } from './dto/start-story.dto';
 import type { ContinueStoryDto } from './dto/continue-story.dto';
 
 const CSE_MAX_RETRIES = 3;
-const CSE_APPROVAL_THRESHOLD = 0.9;
 
 @Injectable()
 export class StoryService {
   private readonly sessionCache = new Map<string, SessionState>();
   private readonly inFlightSessions = new Set<string>();
   private readonly logger = new Logger(StoryService.name);
+  private readonly cseApprovalThreshold: number;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly geminiService: GeminiService,
     private readonly promptService: PromptService,
     private readonly storageService: LocalDiskStorageService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.cseApprovalThreshold =
+      parseFloat(
+        this.configService.get<string>('CSE_APPROVAL_THRESHOLD') || '0.9',
+      ) || 0.9;
+    this.logger.log(
+      `StoryService initialized with CSE_APPROVAL_THRESHOLD=${this.cseApprovalThreshold}`,
+    );
+  }
 
   async startStory(userId: string, dto: StartStoryDto) {
     const session = await this.prisma.session.findUnique({
       where: { id: dto.sessionId },
-      include: { template: true, child: true },
+      include: { template: true, child: { include: { user: true } } },
     });
 
     if (!session) {
@@ -70,10 +80,21 @@ export class StoryService {
     }
 
     const template = session.template;
+    const child = session.child;
+
+    // Extract child name from database
+    const childName = child.user.displayName || child.user.firstName || 'Friend';
+
+    // Calculate child age from dateOfBirth or use default
+    let childAge = 7;
+    if (child.dateOfBirth) {
+      const ageDiff = Date.now() - child.dateOfBirth.getTime();
+      childAge = Math.floor(ageDiff / (365.25 * 24 * 60 * 60 * 1000));
+    }
 
     const systemPrompt = this.promptService.buildInitPrompt({
-      childName: dto.childName,
-      childAge: dto.childAge,
+      childName,
+      childAge,
       targetBehavior: template.targetBehavior,
       mainCharacter: template.mainCharacter,
       setting: template.setting,
@@ -91,7 +112,7 @@ export class StoryService {
         userMessage: 'Generate the opening story node for this session.',
         jsonSchema: INIT_RESPONSE_SCHEMA,
         targetBehavior: template.targetBehavior,
-        childAge: dto.childAge,
+        childAge,
       });
       llmResponse = result.response;
       cseResult = result.cseResult;
@@ -154,7 +175,7 @@ export class StoryService {
       templateId: session.templateId,
       turnCount: 0,
       targetBehavior: template.targetBehavior,
-      childAge: dto.childAge,
+      childAge,
       lastNodeText: llmResponse.node_text,
       visualStyle: llmResponse.visual_style,
       characterAnchor: llmResponse.character_anchor,
@@ -233,13 +254,33 @@ export class StoryService {
       );
     }
 
+    // Count existing interactions to determine sequence number
+    const existingInteractionCount = await this.prisma.interaction.count({
+      where: { sessionId: dto.sessionId },
+    });
+    const choiceSequenceNum = existingInteractionCount + 1;
+
+    // Get the session start time for duration calculation
+    const sessionDuration = Date.now() - session.startedAt.getTime();
+
+    // Create interaction with comprehensive behavioral metrics
     await this.prisma.interaction.create({
       data: {
         sessionId: dto.sessionId,
         choiceId: dto.choiceId,
+        nodeId: latestNode.id,
         timeTakenMs: dto.timeTakenMs,
+        choiceSequenceNum,
+        behavioralPattern: choice.behavioralTag,
+        nodeConfidenceScore: latestNode.confidenceScore,
+        nodeApprovedByTherapist: latestNode.isApproved,
+        turnNumber: state.turnCount,
+        sessionDuration,
       },
     });
+
+    // Update behavioral analytics for the session
+    await this.updateSessionBehavioralAnalytics(dto.sessionId);
 
     state.turnCount += 1;
 
@@ -283,6 +324,7 @@ export class StoryService {
     if (!useFallback) {
       const imagePromise = (async () => {
         let newImageBuffer: Buffer;
+        const aspectRatioPrompt = `Keep image in 16:9 aspect ratio. ${llmResponse.visual_context}`;
 
         if (state.lastGeneratedImageUrl) {
           const diskPath = this.storageService.resolveImageDiskPath(
@@ -292,13 +334,13 @@ export class StoryService {
           const prevImageBase64 = prevImageBuffer.toString('base64');
 
           newImageBuffer = await this.geminiService.generateImageFromImage(
-            llmResponse.visual_context,
+            aspectRatioPrompt,
             prevImageBase64,
             'image/png',
           );
         } else {
           newImageBuffer = await this.geminiService.generateImageFromText(
-            llmResponse.visual_context,
+            aspectRatioPrompt,
           );
         }
 
@@ -331,6 +373,10 @@ export class StoryService {
     const confidenceScore = cseResult?.confidence_score ?? (useFallback ? 0.5 : 1.0);
     const isApproved = cseResult?.safety_status === 'SAFE';
 
+    this.logger.debug(
+      `Creating story node for continuation: imageUrl=${imageUrl ? 'YES' : 'NULL'}, audioUrl=${audioUrl ? 'YES' : 'NULL'}`,
+    );
+
     const storyNode = await this.prisma.storyNode.create({
       data: {
         sessionId: dto.sessionId,
@@ -351,12 +397,34 @@ export class StoryService {
       include: { choices: true },
     });
 
+    this.logger.debug(
+      `Created story node ${storyNode.id}: imageUrl=${storyNode.imageUrl ? 'YES' : 'NULL'}, audioUrl=${storyNode.audioUrl ? 'YES' : 'NULL'}`,
+    );
+
     if (isEnding) {
       await this.prisma.session.update({
         where: { id: dto.sessionId },
         data: { status: 'COMPLETED', endedAt: new Date() },
       });
+      
+      // Final analytics update with session completion flag
+      const finalAnalytics = await this.prisma.behavioralAnalytics.findUnique({
+        where: { sessionId: dto.sessionId },
+      });
+      
+      if (finalAnalytics) {
+        await this.prisma.behavioralAnalytics.update({
+          where: { sessionId: dto.sessionId },
+          data: {
+            updatedAt: new Date(),
+          },
+        });
+      }
+      
       this.sessionCache.delete(dto.sessionId);
+      this.logger.log(
+        `Session ${dto.sessionId} completed. Final analytics recorded.`,
+      );
     } else {
       state.lastNodeText = llmResponse.node_text;
       state.lastGeneratedImageUrl = imageUrl ?? '';
@@ -372,6 +440,7 @@ export class StoryService {
         imageUrl: storyNode.imageUrl,
         audioUrl: storyNode.audioUrl,
         confidenceScore: storyNode.confidenceScore,
+        isApproved: storyNode.isApproved,
         choices: storyNode.choices.map((c) => ({
           id: c.id,
           text: c.text,
@@ -435,7 +504,7 @@ export class StoryService {
 
       // Step 3: Check if approved
       if (
-        cseResult.confidence_score >= CSE_APPROVAL_THRESHOLD &&
+        cseResult.confidence_score >= this.cseApprovalThreshold &&
         cseResult.safety_status === 'SAFE'
       ) {
         return { response: llmResponse, cseResult };
@@ -482,8 +551,9 @@ export class StoryService {
   }
 
   private async generateAndStoreImage(visualContext: string): Promise<string> {
+    const aspectRatioPrompt = `Generate image in 16:9 aspect ratio. ${visualContext}`;
     const imageBuffer =
-      await this.geminiService.generateImageFromText(visualContext);
+      await this.geminiService.generateImageFromText(aspectRatioPrompt);
     return this.storageService.uploadBuffer(
       imageBuffer,
       'image/png',
@@ -569,5 +639,375 @@ export class StoryService {
     this.logger.log(`Session ${sessionId} rehydrated from database`);
 
     return state;
+  }
+
+  /**
+   * Update behavioral analytics for a session after each choice.
+   * Aggregates choice data and computes engagement metrics.
+   */
+  private async updateSessionBehavioralAnalytics(sessionId: string): Promise<void> {
+    const interactions = await this.prisma.interaction.findMany({
+      where: { sessionId },
+      include: { choice: true },
+    });
+
+    if (interactions.length === 0) {
+      // Create empty behavioral analytics record if no interactions yet
+      await this.prisma.behavioralAnalytics.upsert({
+        where: { sessionId },
+        update: {},
+        create: {
+          sessionId,
+          totalChoices: 0,
+          positiveChoices: 0,
+          negativeChoices: 0,
+          neutralChoices: 0,
+          avgTimeTakenMs: 0,
+          engagementScore: 0.5,
+          avgNodeConfidenceScore: 0,
+          therapistApprovedNodes: 0,
+          flaggedForReview: false,
+        },
+      });
+      return;
+    }
+
+    // Count choice types
+    const positiveChoices = interactions.filter(
+      (i) => i.behavioralPattern === 'Positive',
+    ).length;
+    const negativeChoices = interactions.filter(
+      (i) => i.behavioralPattern === 'Negative',
+    ).length;
+    const neutralChoices = interactions.filter(
+      (i) => i.behavioralPattern === 'Neutral',
+    ).length;
+
+    // Calculate timing metrics
+    const timeTakenValues = interactions.map((i) => i.timeTakenMs);
+    const avgTimeTakenMs =
+      timeTakenValues.reduce((a, b) => a + b, 0) / timeTakenValues.length;
+    const minTimeTakenMs = Math.min(...timeTakenValues);
+    const maxTimeTakenMs = Math.max(...timeTakenValues);
+
+    // Determine decision speed trend
+    const decisionSpeedTrend = this.analyzeDecisionSpeedTrend(timeTakenValues);
+
+    // Determine positive choice pattern
+    const positiveChoicePattern = this.analyzeChoicePattern(
+      interactions.map((i) => i.behavioralPattern ?? 'Neutral').filter(Boolean),
+      'Positive',
+    );
+
+    // Calculate engagement score (0.0 - 1.0)
+    // Based on: choice distribution, decision consistency, and response quality
+    const engagementScore = this.calculateEngagementScore(
+      positiveChoices,
+      interactions.length,
+      avgTimeTakenMs,
+      interactions.map((i) => i.nodeConfidenceScore ?? 0),
+    );
+
+    // Get average node confidence score
+    const avgNodeConfidenceScore =
+      interactions.reduce((sum, i) => sum + (i.nodeConfidenceScore ?? 0), 0) /
+      interactions.length;
+
+    // Count therapist-approved nodes
+    const therapistApprovedNodes = interactions.filter(
+      (i) => i.nodeApprovedByTherapist,
+    ).length;
+
+    // Determine dominant behavior pattern
+    const dominantBehaviorPattern =
+      positiveChoices >= negativeChoices && positiveChoices >= neutralChoices
+        ? 'Positive'
+        : negativeChoices >= neutralChoices
+          ? 'Negative'
+          : 'Neutral';
+
+    // Generate insights for therapist
+    const notesForTherapist = this.generateTherapistNotes({
+      totalChoices: interactions.length,
+      positiveChoices,
+      negativeChoices,
+      neutralChoices,
+      avgTimeTakenMs,
+      engagementScore,
+      dominantBehaviorPattern,
+    });
+
+    // Determine if flagged for review
+    const flaggedForReview =
+      engagementScore < 0.4 || // Low engagement
+      avgNodeConfidenceScore < 0.7 || // Low AI quality
+      negativeChoices > positiveChoices; // More negative than positive choices
+
+    // Upsert behavioral analytics
+    await this.prisma.behavioralAnalytics.upsert({
+      where: { sessionId },
+      update: {
+        totalChoices: interactions.length,
+        positiveChoices,
+        negativeChoices,
+        neutralChoices,
+        avgTimeTakenMs,
+        minTimeTakenMs,
+        maxTimeTakenMs,
+        decisionSpeedTrend,
+        positiveChoicePattern,
+        engagementScore,
+        avgNodeConfidenceScore,
+        therapistApprovedNodes,
+        dominantBehaviorPattern,
+        notesForTherapist,
+        flaggedForReview,
+        updatedAt: new Date(),
+      },
+      create: {
+        sessionId,
+        totalChoices: interactions.length,
+        positiveChoices,
+        negativeChoices,
+        neutralChoices,
+        avgTimeTakenMs,
+        minTimeTakenMs,
+        maxTimeTakenMs,
+        decisionSpeedTrend,
+        positiveChoicePattern,
+        engagementScore,
+        avgNodeConfidenceScore,
+        therapistApprovedNodes,
+        dominantBehaviorPattern,
+        notesForTherapist,
+        flaggedForReview,
+      },
+    });
+
+    this.logger.log(
+      `Updated behavioral analytics for session ${sessionId}: ${positiveChoices} positive, ${negativeChoices} negative, ${neutralChoices} neutral choices`,
+    );
+  }
+
+  /**
+   * Analyze decision speed trend over time.
+   * Returns: "Fast", "Moderate", "Slow", or "Variable"
+   */
+  private analyzeDecisionSpeedTrend(timeTakenValues: number[]): string {
+    if (timeTakenValues.length === 0) return 'Moderate';
+
+    const avgTime = timeTakenValues.reduce((a, b) => a + b, 0) / timeTakenValues.length;
+
+    // Standard deviation to detect variability
+    const variance =
+      timeTakenValues.reduce((sum, val) => sum + Math.pow(val - avgTime, 2), 0) /
+      timeTakenValues.length;
+    const stdDev = Math.sqrt(variance);
+    const coefficientOfVariation = stdDev / avgTime;
+
+    // If high variability, mark as "Variable"
+    if (coefficientOfVariation > 0.5) {
+      return 'Variable';
+    }
+
+    // Classify by average time
+    if (avgTime < 1500) {
+      return 'Fast';
+    } else if (avgTime > 4000) {
+      return 'Slow';
+    }
+    return 'Moderate';
+  }
+
+  /**
+   * Analyze choice pattern for a specific type.
+   * Returns: "Consistent", "Improving", "Declining"
+   */
+  private analyzeChoicePattern(patterns: string[], targetType: string): string {
+    if (patterns.length < 2) return 'Consistent';
+
+    // Split into early and late choices
+    const midpoint = Math.floor(patterns.length / 2);
+    const earlyChoices = patterns.slice(0, midpoint);
+    const lateChoices = patterns.slice(midpoint);
+
+    const earlyTargetCount = earlyChoices.filter((p) => p === targetType).length;
+    const lateTargetCount = lateChoices.filter((p) => p === targetType).length;
+
+    const earlyRatio = earlyTargetCount / Math.max(earlyChoices.length, 1);
+    const lateRatio = lateTargetCount / Math.max(lateChoices.length, 1);
+
+    // If difference is minimal, consistent
+    if (Math.abs(lateRatio - earlyRatio) < 0.2) {
+      return 'Consistent';
+    }
+
+    // If trending toward target type
+    if (lateRatio > earlyRatio) {
+      return 'Improving';
+    }
+
+    return 'Declining';
+  }
+
+  /**
+   * Calculate engagement score (0.0 - 1.0) based on multiple factors.
+   */
+  private calculateEngagementScore(
+    positiveChoices: number,
+    totalChoices: number,
+    avgTimeTakenMs: number,
+    confidenceScores: number[],
+  ): number {
+    // Factor 1: Positive choice ratio (0.3 weight)
+    const positiveRatio = totalChoices > 0 ? positiveChoices / totalChoices : 0;
+    const positiveScore = Math.min(positiveRatio * 1.5, 1.0); // Boost positive choices
+
+    // Factor 2: Decision consistency (0.3 weight)
+    // Ideal decision time is 1500-3500ms; penalize too fast or too slow
+    let consistencyScore = 1.0;
+    if (avgTimeTakenMs < 800) {
+      consistencyScore = avgTimeTakenMs / 800; // Too rushed
+    } else if (avgTimeTakenMs > 5000) {
+      consistencyScore = 1.0 - (avgTimeTakenMs - 5000) / 5000; // Too hesitant
+    }
+    consistencyScore = Math.max(consistencyScore, 0);
+
+    // Factor 3: Content quality (0.4 weight)
+    const avgConfidence = confidenceScores.length > 0
+      ? confidenceScores.reduce((a, b) => a + b, 0) / confidenceScores.length
+      : 0;
+    const qualityScore = avgConfidence;
+
+    // Weighted average
+    const engagementScore =
+      positiveScore * 0.3 + consistencyScore * 0.3 + qualityScore * 0.4;
+
+    return Math.max(0, Math.min(engagementScore, 1.0));
+  }
+
+  /**
+   * Generate human-readable insights for therapist based on behavioral data.
+   */
+  private generateTherapistNotes(metrics: {
+    totalChoices: number;
+    positiveChoices: number;
+    negativeChoices: number;
+    neutralChoices: number;
+    avgTimeTakenMs: number;
+    engagementScore: number;
+    dominantBehaviorPattern: string;
+  }): string {
+    const notes: string[] = [];
+
+    // Total engagement summary
+    notes.push(`Session included ${metrics.totalChoices} choices.`);
+
+    // Choice distribution
+    const positivePercent = Math.round(
+      (metrics.positiveChoices / metrics.totalChoices) * 100,
+    );
+    const negativePercent = Math.round(
+      (metrics.negativeChoices / metrics.totalChoices) * 100,
+    );
+    const neutralPercent = Math.round(
+      (metrics.neutralChoices / metrics.totalChoices) * 100,
+    );
+
+    notes.push(
+      `Choice distribution: ${positivePercent}% positive, ${negativePercent}% negative, ${neutralPercent}% neutral.`,
+    );
+
+    // Dominant pattern
+    if (metrics.dominantBehaviorPattern === 'Positive') {
+      notes.push(
+        'Child demonstrated predominantly positive behavioral choices throughout the session.',
+      );
+    } else if (metrics.dominantBehaviorPattern === 'Negative') {
+      notes.push(
+        'Child made more negative choices. Consider exploring triggers or barriers in follow-up.',
+      );
+    } else {
+      notes.push('Child demonstrated mixed behavioral patterns.');
+    }
+
+    // Decision speed insights
+    if (metrics.avgTimeTakenMs < 1500) {
+      notes.push('Child made decisions quickly - may indicate impulsivity or high confidence.');
+    } else if (metrics.avgTimeTakenMs > 4000) {
+      notes.push(
+        'Child took longer to decide - may indicate careful consideration or decision anxiety.',
+      );
+    } else {
+      notes.push('Child maintained moderate, steady decision-making speed.');
+    }
+
+    // Engagement level
+    if (metrics.engagementScore >= 0.8) {
+      notes.push('Overall engagement score is high - strong session quality.');
+    } else if (metrics.engagementScore < 0.4) {
+      notes.push('Overall engagement score is low - may warrant session review.');
+    }
+
+    return notes.join(' ');
+  }
+
+  /**
+   * Retrieve behavioral analytics for a session.
+   * Used by therapists to analyze child's behavioral patterns.
+   */
+  async getSessionBehavioralAnalytics(sessionId: string) {
+    const trimmedSessionId = sessionId.trim();
+    
+    this.logger.debug(`Looking for analytics for session: "${trimmedSessionId}"`);
+    
+    const analytics = await this.prisma.behavioralAnalytics.findFirst({
+      where: { 
+        sessionId: trimmedSessionId,
+      },
+    });
+
+    if (!analytics) {
+      this.logger.error(
+        `Analytics not found for session: "${trimmedSessionId}". Checking if session exists...`,
+      );
+      
+      const session = await this.prisma.session.findUnique({
+        where: { id: trimmedSessionId },
+      });
+      
+      if (!session) {
+        throw new NotFoundException('Session not found.');
+      }
+      
+      throw new NotFoundException(
+        'Behavioral analytics not found for this session.',
+      );
+    }
+
+    // Also fetch all interactions for detailed view
+    const interactions = await this.prisma.interaction.findMany({
+      where: { sessionId },
+      include: {
+        choice: { select: { text: true, behavioralTag: true } },
+        node: { select: { textContent: true, confidenceScore: true } },
+      },
+      orderBy: { timestamp: 'asc' },
+    });
+
+    return {
+      analytics,
+      interactions,
+      summary: {
+        sessionId,
+        totalInteractions: interactions.length,
+        sessionDuration: interactions.length > 0
+          ? interactions[interactions.length - 1].sessionDuration
+          : null,
+        overallEngagement: analytics.engagementScore,
+        therapistNotesForReview: analytics.notesForTherapist,
+        flaggedForTherapistReview: analytics.flaggedForReview,
+      },
+    };
   }
 }

@@ -1,0 +1,38 @@
+info:
+  name: Start Story
+  type: graphql
+  seq: 1
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      mutation StartStory($sessionId: String!) {
+         startStory(sessionId: $sessionId) {
+           sessionId
+           node {
+             id
+             textContent
+             imageUrl
+             audioUrl
+             confidenceScore
+             choices {
+               id
+               text
+             }
+           }
+         }
+       }
+    variables: |2-
+      
+       {
+         "sessionId": "cmo8cscia0000doq4mj4xjgfa"
+       }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

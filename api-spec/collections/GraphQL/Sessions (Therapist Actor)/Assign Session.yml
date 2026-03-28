@@ -20,8 +20,8 @@ graphql:
     variables: |
       {
         "dto": {
-          "childProfileId": "cmo1mpfzx00035oq4xfv3xczt",
-          "templateId": "cmo1ts7v90000xoq4e05gqjwm"
+          "childProfileId": "cmo1mpgug00065oq4lg8b69pj",
+          "templateId": "cmo8c63gb00003sq4yj94ue6e"
         }
       }
   auth: inherit

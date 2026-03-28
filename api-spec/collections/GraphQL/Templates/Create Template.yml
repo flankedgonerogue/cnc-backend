@@ -23,11 +23,11 @@ graphql:
     variables: |
       {
         "createData": {
-          "targetBehavior": "Sharing toys",
-          "setting": "A sunny park",
-          "mainCharacter": "Leo the Lion",
-          "emotionalTone": "ENCOURAGING",
-          "promptSuggestion": "Leo learns to share his favorite ball.",
+          "targetBehavior": "Stop fingering people",
+          "setting": "Bedroom",
+          "mainCharacter": "NomanElChupKabara",
+          "emotionalTone": "NEUTRAL",
+          "promptSuggestion": "Teach Noman to not finger other people",
           "visualStyle": "Cartoon style, bright colors"
         }
       }
