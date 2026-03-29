@@ -260,6 +260,7 @@ export class AdminService {
       avatarCount,
       imageCount,
       audioCount,
+      sessionsByStatus,
     ] = await Promise.all([
       this.prisma.user.groupBy({
         by: ['role'],
@@ -281,6 +282,10 @@ export class AdminService {
       this.prisma.storyNode.count({
         where: { audioUrl: { not: null } },
       }),
+      this.prisma.session.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+      }),
     ]);
 
     const userBaseByRole = usersByRole.reduce<Record<string, number>>(
@@ -301,6 +306,19 @@ export class AdminService {
       0,
     );
 
+    const sessionStats = sessionsByStatus.reduce<Record<string, number>>(
+      (acc, row) => {
+        const statusKey = row.status ?? 'UNKNOWN';
+        const count =
+          typeof row._count === 'object' && row._count?._all !== undefined
+            ? row._count._all
+            : 0;
+        acc[statusKey] = count;
+        return acc;
+      },
+      {},
+    );
+
     return {
       userBaseByRole,
       totalUsers,
@@ -314,6 +332,207 @@ export class AdminService {
         avatarCount,
         storyImageCount: imageCount,
         storyAudioCount: audioCount,
+      },
+    };
+  }
+
+  async getAllUsers() {
+    return this.prisma.user.findMany({
+      where: { deletedAt: null },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        displayName: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    }) as Promise<any[]>;
+  }
+
+  async getUserConnections() {
+    const connections = await this.prisma.childProfile.findMany({
+      where: { user: { deletedAt: null } },
+      include: {
+        user: {
+          select: { id: true, email: true, displayName: true },
+        },
+        therapist: {
+          select: {
+            user: { select: { id: true, email: true, displayName: true } },
+          },
+        },
+        guardian: {
+          include: {
+            user: { select: { email: true } },
+          },
+        },
+      },
+      orderBy: { user: { createdAt: 'desc' } },
+    });
+
+    return connections.map((child) => ({
+      childId: child.id,
+      childEmail: child.user.email,
+      childName: child.user.displayName,
+      therapistId: child.therapist.user.id,
+      therapistEmail: child.therapist.user.email,
+      therapistName: child.therapist.user.displayName,
+      guardianId: child.guardian?.id ?? null,
+      guardianEmail: child.guardian?.user?.email ?? null,
+    })) as any[];
+  }
+
+  async getAllSessions() {
+    const sessions = await this.prisma.session.findMany({
+      include: {
+        child: {
+          include: { user: { select: { displayName: true } } },
+        },
+        template: { select: { targetBehavior: true } },
+      },
+      orderBy: { startedAt: 'desc' },
+    });
+
+    return sessions.map((session) => ({
+      id: session.id,
+      childId: session.childId,
+      childName: session.child.user.displayName || 'Unknown',
+      templateId: session.templateId,
+      templateName: session.template.targetBehavior,
+      status: session.status,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt,
+      createdAt: session.startedAt,
+    })) as any[];
+  }
+
+  async getSessionDetails(sessionId: string) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      include: {
+        child: {
+          include: { user: true, therapist: { include: { user: true } } },
+        },
+        template: true,
+        nodes: {
+          select: { confidenceScore: true },
+        },
+        interactions: {
+          select: { id: true },
+        },
+      },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found.');
+    }
+
+    const avgConfidence =
+      session.nodes.length > 0
+        ? session.nodes.reduce((sum, n) => sum + n.confidenceScore, 0) /
+          session.nodes.length
+        : 0;
+
+    return {
+      id: session.id,
+      childId: session.childId,
+      childName: session.child.user.displayName || 'Unknown',
+      templateId: session.templateId,
+      templateName: session.template.targetBehavior,
+      therapistId: session.child.therapist.user.id,
+      therapistName: session.child.therapist.user.displayName || 'Unknown',
+      status: session.status,
+      averageConfidenceScore: avgConfidence,
+      totalInteractions: session.interactions.length,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt,
+    } as any;
+  }
+
+  async getAppStats() {
+    const [users, sessions, sessionsByStatus, avgConfidence, storage] =
+      await Promise.all([
+        this.prisma.user.groupBy({
+          by: ['role'],
+          where: { deletedAt: null },
+          _count: { _all: true },
+        }),
+        this.prisma.session.count(),
+        this.prisma.session.groupBy({
+          by: ['status'],
+          _count: { _all: true },
+        }),
+        this.prisma.storyNode.aggregate({
+          _avg: { confidenceScore: true },
+        }),
+        Promise.all([
+          this.prisma.user.count({
+            where: { avatarUrl: { not: null }, deletedAt: null },
+          }),
+          this.prisma.storyNode.count({ where: { imageUrl: { not: null } } }),
+          this.prisma.storyNode.count({ where: { audioUrl: { not: null } } }),
+        ]),
+      ]);
+
+    const roleMap: Record<string, number> = {
+      ADMIN: 0,
+      THERAPIST: 0,
+      GUARDIAN: 0,
+      CHILD: 0,
+      UNASSIGNED: 0,
+    };
+
+    users.forEach((row) => {
+      const role = row.role ?? 'UNASSIGNED';
+      const count =
+        typeof row._count === 'object' && row._count?._all !== undefined
+          ? row._count._all
+          : 0;
+      if (role in roleMap) {
+        roleMap[role] = count;
+      }
+    });
+
+    const statusMap: Record<string, number> = {
+      ACTIVE: 0,
+      PAUSED_FOR_REVIEW: 0,
+      COMPLETED: 0,
+    };
+
+    sessionsByStatus.forEach((row) => {
+      const status = row.status ?? 'UNKNOWN';
+      const count =
+        typeof row._count === 'object' && row._count?._all !== undefined
+          ? row._count._all
+          : 0;
+      if (status in statusMap) {
+        statusMap[status] = count;
+      }
+    });
+
+    const totalUsers = Object.values(roleMap).reduce((a, b) => a + b, 0);
+
+    return {
+      totalUsers,
+      adminCount: roleMap.ADMIN,
+      therapistCount: roleMap.THERAPIST,
+      guardianCount: roleMap.GUARDIAN,
+      childCount: roleMap.CHILD,
+      unassignedUserCount: roleMap.UNASSIGNED,
+      totalSessions: sessions,
+      activeSessions: statusMap.ACTIVE,
+      completedSessions: statusMap.COMPLETED,
+      pausedSessions: statusMap.PAUSED_FOR_REVIEW,
+      averageSessionConfidenceScore: avgConfidence._avg.confidenceScore ?? 0,
+      pausedForReviewCount: statusMap.PAUSED_FOR_REVIEW,
+      storageUsage: {
+        avatarCount: storage[0],
+        storyImageCount: storage[1],
+        storyAudioCount: storage[2],
       },
     };
   }
