@@ -76,7 +76,32 @@ export class StoryService {
     });
 
     if (existingNodeCount > 0) {
-      throw new BadRequestException('Session has already been started.');
+      const latestNode = await this.prisma.storyNode.findFirst({
+        where: { sessionId: dto.sessionId },
+        orderBy: { id: 'desc' },
+        include: { choices: true },
+      });
+
+      if (!latestNode) {
+        throw new NotFoundException('Current story node not found.');
+      }
+
+      return {
+        sessionId: session.id,
+        node: {
+          id: latestNode.id,
+          textContent: latestNode.textContent,
+          imageUrl: latestNode.imageUrl,
+          audioUrl: latestNode.audioUrl,
+          confidenceScore: latestNode.confidenceScore,
+          isApproved: latestNode.isApproved,
+          choices: latestNode.choices.map((c) => ({
+            id: c.id,
+            text: c.text,
+            behavioralTag: c.behavioralTag,
+          })),
+        },
+      };
     }
 
     const template = session.template;
@@ -197,6 +222,41 @@ export class StoryService {
         })),
       },
     };
+  }
+
+  async restartStory(userId: string, dto: StartStoryDto) {
+    const session = await this.prisma.session.findUnique({
+      where: { id: dto.sessionId },
+      include: { child: true },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found.');
+    }
+
+    await this.validateSessionAccess(userId, session.child);
+
+    await this.prisma.$transaction([
+      this.prisma.interaction.deleteMany({ where: { sessionId: dto.sessionId } }),
+      this.prisma.choice.deleteMany({ where: { node: { sessionId: dto.sessionId } } }),
+      this.prisma.storyNode.deleteMany({ where: { sessionId: dto.sessionId } }),
+      this.prisma.behavioralAnalytics.deleteMany({
+        where: { sessionId: dto.sessionId },
+      }),
+      this.prisma.session.update({
+        where: { id: dto.sessionId },
+        data: {
+          status: 'ACTIVE',
+          endedAt: null,
+          startedAt: new Date(),
+        },
+      }),
+    ]);
+
+    this.sessionCache.delete(dto.sessionId);
+    this.inFlightSessions.delete(dto.sessionId);
+
+    return this.startStory(userId, dto);
   }
 
   async continueStory(userId: string, dto: ContinueStoryDto) {
