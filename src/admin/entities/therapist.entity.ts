@@ -1,4 +1,4 @@
-import { Field, ID, ObjectType, Float } from '@nestjs/graphql';
+import { Field, ID, ObjectType, Float, Int } from '@nestjs/graphql';
 
 @ObjectType()
 export class TherapistEntity {
@@ -38,7 +38,7 @@ export class TherapistEntity {
   @Field(() => String, { nullable: true })
   bio?: string | null;
 
-  @Field(() => Float, { nullable: true })
+  @Field(() => Int, { nullable: true })
   interventionThreshold?: number | null;
 
   @Field()

@@ -1,0 +1,36 @@
+info:
+  name: App Stats
+  type: graphql
+  seq: 7
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |-
+      query GetAppStats {
+        getAppStats {
+          totalUsers
+          adminCount
+          therapistCount
+          guardianCount
+          childCount
+          totalSessions
+          activeSessions
+          completedSessions
+          pausedSessions
+          averageSessionConfidenceScore
+          storageUsage {
+            avatarCount
+            storyImageCount
+            storyAudioCount
+          }
+        }
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

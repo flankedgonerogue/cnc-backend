@@ -1,0 +1,64 @@
+info:
+  name: Create Therapist
+  type: graphql
+  seq: 1
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      mutation CreateTherapist(
+        $email: String!
+        $password: String!
+        $firstName: String!
+        $lastName: String!
+        $clinicName: String!
+        $licenseNumber: String!
+        $specialization: String
+        $bio: String
+        $interventionThreshold: Int
+      ) {
+        createTherapist(
+          email: $email
+          password: $password
+          firstName: $firstName
+          lastName: $lastName
+          clinicName: $clinicName
+          licenseNumber: $licenseNumber
+          specialization: $specialization
+          bio: $bio
+          interventionThreshold: $interventionThreshold
+        ) {
+          userId
+          email
+          firstName
+          lastName
+          displayName
+          clinicName
+          licenseNumber
+          specialization
+          bio
+          interventionThreshold
+          activeChildCount
+        }
+      }
+    variables: |-
+      {
+        "email": "{{$randomEmail}}",
+        "password": "{{$randomPassword}}",
+        "firstName": "John",
+        "lastName": "Doe",
+        "clinicName": "Main Clinic",
+        "licenseNumber": "{{$randomIP}}",
+        "specialization": "Behavioral Therapy",
+        "bio": "Experienced therapist",
+        "interventionThreshold": 75
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

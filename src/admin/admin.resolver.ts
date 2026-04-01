@@ -5,6 +5,7 @@ import {
   Args,
   Context,
   ID,
+  Int,
 } from '@nestjs/graphql';
 import { UseGuards, BadRequestException } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -40,7 +41,7 @@ export class AdminResolver {
     @Args('licenseNumber') licenseNumber: string,
     @Args('specialization', { nullable: true }) specialization?: string,
     @Args('bio', { nullable: true }) bio?: string,
-    @Args('interventionThreshold', { type: () => Number, nullable: true })
+    @Args('interventionThreshold', { type: () => Int, nullable: true })
     interventionThreshold?: number,
     @Context() context?: any,
   ): Promise<TherapistEntity> {

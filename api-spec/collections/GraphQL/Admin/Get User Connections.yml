@@ -1,0 +1,29 @@
+info:
+  name: Get User Connections
+  type: graphql
+  seq: 6
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |-
+      query GetUserConnections {
+        getUserConnections {
+          childId
+          childEmail
+          childName
+          therapistId
+          therapistEmail
+          therapistName
+          guardianId
+          guardianEmail
+        }
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

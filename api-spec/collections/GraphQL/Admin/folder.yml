@@ -1,0 +1,9 @@
+info:
+  name: Admin
+  type: folder
+  seq: 1
+
+request:
+  auth:
+    type: bearer
+    token: "{{ADMIN_TOKEN}}"
