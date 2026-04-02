@@ -35,6 +35,23 @@ export class StoryResolver {
     return this.storyService.startStory(userId, dto);
   }
 
+  @Mutation(() => StoryNodeResponse, { name: 'restartStory' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.THERAPIST, Role.CHILD)
+  async restartStory(
+    @Args('sessionId') sessionId: string,
+    @Context() context: any,
+  ): Promise<StoryNodeResponse> {
+    const userId = context.req.user.id;
+
+    if (!sessionId || sessionId.trim().length === 0) {
+      throw new BadRequestException('sessionId is required');
+    }
+
+    const dto: StartStoryDto = { sessionId };
+    return this.storyService.restartStory(userId, dto);
+  }
+
   @Mutation(() => ContinueStoryResponse, { name: 'continueStory' })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.THERAPIST, Role.CHILD)
