@@ -601,7 +601,23 @@ export class StoryService {
         currentUserMessage,
         params.jsonSchema,
       );
-      return { response: finalResponse, cseResult: lastCseResult };
+      // Re-evaluate the final response with CSE to get an updated confidence score
+      const finalCseResult = await this.geminiService.evaluateWithCse(
+        this.promptService.buildCseSystemPrompt({
+          targetBehavior: params.targetBehavior,
+          childAge: params.childAge,
+        }),
+        this.promptService.buildCseUserPrompt({
+          targetBehavior: params.targetBehavior,
+          childAge: params.childAge,
+          generatedJson: JSON.stringify(finalResponse, null, 2),
+        }),
+        CSE_RESPONSE_SCHEMA,
+      );
+      this.logger.log(
+        `Final CSE evaluation: score=${finalCseResult.confidence_score}, status=${finalCseResult.safety_status}`,
+      );
+      return { response: finalResponse, cseResult: finalCseResult };
     }
 
     // UNSAFE after all retries — throw to trigger fallback

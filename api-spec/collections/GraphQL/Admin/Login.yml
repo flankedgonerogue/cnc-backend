@@ -1,7 +1,7 @@
 info:
   name: Login
   type: graphql
-  seq: 2
+  seq: 1
 
 graphql:
   method: POST
