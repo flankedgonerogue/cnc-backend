@@ -27,7 +27,7 @@ variables:
   - name: ACCESS_TOKEN_CHILD
     value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjbW8xbXBmengwMDAzNW9xNHhmdjN4Y3p0IiwiZW1haWwiOiJjaGlsZEBleGFtcGxlLmNvbSIsInJvbGUiOiJDSElMRCIsImlhdCI6MTc3NjM1MzI1NywiZXhwIjoxNzc2OTU4MDU3fQ.nsL0Zh2q5QopoodRyuqW_PZlyD6Zc6sA58LtLPkkN_o
   - name: BASE_URL
-    value: http://localhost:3000
-    disabled: true
+    value: 18.140.250.19
   - name: BASE_URL
-    value: http://localhost:3000
+    value: 18.140.250.19
+    disabled: true

@@ -3,12 +3,19 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
+import { S3StorageService } from './s3-storage.service';
 
 export const STORAGE_SERVICE = 'STORAGE_SERVICE';
 
 export interface StorageService {
   uploadFile(file: Express.Multer.File): Promise<string>;
   deleteFile(fileUrl: string): Promise<void>;
+  uploadBuffer(
+    buffer: Buffer,
+    mimeType: string,
+    subdir?: string,
+  ): Promise<string>;
+  resolveImageDiskPath(imageUrl: string): string;
 }
 
 @Injectable()
@@ -132,8 +139,27 @@ export class LocalDiskStorageService implements StorageService {
   imports: [ConfigModule],
   providers: [
     LocalDiskStorageService,
-    { provide: STORAGE_SERVICE, useExisting: LocalDiskStorageService },
+    S3StorageService,
+    {
+      provide: STORAGE_SERVICE,
+      useFactory: (configService: ConfigService) => {
+        const storageType = configService.get<string>('STORAGE_TYPE') || 'local';
+        if (storageType === 's3') {
+          return configService.get<S3StorageService>('s3-storage');
+        }
+        return configService.get<LocalDiskStorageService>('local-storage');
+      },
+      inject: [ConfigService],
+    },
+    {
+      provide: 'local-storage',
+      useClass: LocalDiskStorageService,
+    },
+    {
+      provide: 's3-storage',
+      useClass: S3StorageService,
+    },
   ],
-  exports: [LocalDiskStorageService, STORAGE_SERVICE],
+  exports: [LocalDiskStorageService, S3StorageService, STORAGE_SERVICE],
 })
 export class StorageModule {}

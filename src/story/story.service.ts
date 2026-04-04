@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { readFile } from 'node:fs/promises';
+import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { LocalDiskStorageService } from '../storage/storage.module';
 import { GeminiService } from './gemini/gemini.service';
@@ -387,17 +387,30 @@ export class StoryService {
         const aspectRatioPrompt = `Keep image in 16:9 aspect ratio. ${llmResponse.visual_context}`;
 
         if (state.lastGeneratedImageUrl) {
-          const diskPath = this.storageService.resolveImageDiskPath(
-            state.lastGeneratedImageUrl,
-          );
-          const prevImageBuffer = await readFile(diskPath);
-          const prevImageBase64 = prevImageBuffer.toString('base64');
+          try {
+            // Fetch the image from the URL (supports both local and S3)
+            const imageResponse = await axios.get(
+              state.lastGeneratedImageUrl,
+              { responseType: 'arraybuffer' },
+            );
+            const prevImageBase64 = Buffer.from(imageResponse.data).toString(
+              'base64',
+            );
 
-          newImageBuffer = await this.geminiService.generateImageFromImage(
-            aspectRatioPrompt,
-            prevImageBase64,
-            'image/png',
-          );
+            newImageBuffer = await this.geminiService.generateImageFromImage(
+              aspectRatioPrompt,
+              prevImageBase64,
+              'image/png',
+            );
+          } catch (error) {
+            this.logger.warn(
+              `Failed to fetch previous image from URL ${state.lastGeneratedImageUrl}, generating from text instead`,
+              error,
+            );
+            newImageBuffer = await this.geminiService.generateImageFromText(
+              aspectRatioPrompt,
+            );
+          }
         } else {
           newImageBuffer = await this.geminiService.generateImageFromText(
             aspectRatioPrompt,
