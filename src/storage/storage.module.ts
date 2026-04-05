@@ -142,22 +142,18 @@ export class LocalDiskStorageService implements StorageService {
     S3StorageService,
     {
       provide: STORAGE_SERVICE,
-      useFactory: (configService: ConfigService) => {
+      useFactory: (
+        configService: ConfigService,
+        localStorageService: LocalDiskStorageService,
+        s3StorageService: S3StorageService,
+      ) => {
         const storageType = configService.get<string>('STORAGE_TYPE') || 'local';
         if (storageType === 's3') {
-          return configService.get<S3StorageService>('s3-storage');
+          return s3StorageService;
         }
-        return configService.get<LocalDiskStorageService>('local-storage');
+        return localStorageService;
       },
-      inject: [ConfigService],
-    },
-    {
-      provide: 'local-storage',
-      useClass: LocalDiskStorageService,
-    },
-    {
-      provide: 's3-storage',
-      useClass: S3StorageService,
+      inject: [ConfigService, LocalDiskStorageService, S3StorageService],
     },
   ],
   exports: [LocalDiskStorageService, S3StorageService, STORAGE_SERVICE],

@@ -32,8 +32,8 @@ graphql:
     variables: |2-
       
        {
-         "sessionId": "cmo8hollv0000wkq434j73tcl",
-         "choiceId": "cmo8hs8p40007wkq4i38lpxdx",
+         "sessionId": "cmo8iho7h000001pexz230vlo",
+         "choiceId": "cmo8kas760003hgq4m7wttn6l",
          "timeTakenMs": 5000.0
        }
   auth: inherit

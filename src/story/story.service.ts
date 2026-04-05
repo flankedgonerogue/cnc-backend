@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -8,7 +9,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
-import { LocalDiskStorageService } from '../storage/storage.module';
+import { STORAGE_SERVICE } from '../storage/storage.module';
+import type { StorageService } from '../storage/storage.module';
 import { GeminiService } from './gemini/gemini.service';
 import {
   INIT_RESPONSE_SCHEMA,
@@ -37,20 +39,24 @@ export class StoryService {
   private readonly inFlightSessions = new Set<string>();
   private readonly logger = new Logger(StoryService.name);
   private readonly cseApprovalThreshold: number;
+  private readonly serverUrl: string;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly geminiService: GeminiService,
     private readonly promptService: PromptService,
-    private readonly storageService: LocalDiskStorageService,
+    @Inject(STORAGE_SERVICE)
+    private readonly storageService: StorageService,
     private readonly configService: ConfigService,
   ) {
     this.cseApprovalThreshold =
       parseFloat(
         this.configService.get<string>('CSE_APPROVAL_THRESHOLD') || '0.9',
       ) || 0.9;
+    this.serverUrl =
+      this.configService.get<string>('SERVER_URL') || 'http://localhost:3000';
     this.logger.log(
-      `StoryService initialized with CSE_APPROVAL_THRESHOLD=${this.cseApprovalThreshold}`,
+      `StoryService initialized with CSE_APPROVAL_THRESHOLD=${this.cseApprovalThreshold}, serverUrl=${this.serverUrl}`,
     );
   }
 
@@ -388,9 +394,12 @@ export class StoryService {
 
         if (state.lastGeneratedImageUrl) {
           try {
+            // Convert relative URL to absolute URL if needed
+            const absoluteUrl = this.getAbsoluteUrl(state.lastGeneratedImageUrl);
+            
             // Fetch the image from the URL (supports both local and S3)
             const imageResponse = await axios.get(
-              state.lastGeneratedImageUrl,
+              absoluteUrl,
               { responseType: 'arraybuffer' },
             );
             const prevImageBase64 = Buffer.from(imageResponse.data).toString(
@@ -1098,5 +1107,24 @@ export class StoryService {
         flaggedForTherapistReview: analytics.flaggedForReview,
       },
     };
+  }
+
+  /**
+   * Convert relative URLs to absolute URLs.
+   * Supports both local storage (/uploads/...) and absolute URLs (http://..., https://...)
+   */
+  private getAbsoluteUrl(url: string): string {
+    // If already absolute, return as-is
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+
+    // If relative, prepend server URL
+    if (url.startsWith('/')) {
+      return `${this.serverUrl}${url}`;
+    }
+
+    // Otherwise assume it's a relative path
+    return `${this.serverUrl}/${url}`;
   }
 }
