@@ -27,7 +27,7 @@ graphql:
     variables: |2-
       
        {
-         "sessionId": "cmo8kbuf20005hgq4qd9r1e3d"
+         "sessionId": "cmo8kx7gj0005u4q447hpoxc6"
        }
   auth: inherit
 

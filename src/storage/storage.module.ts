@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { mkdir, writeFile, unlink } from 'node:fs/promises';
+import { mkdir, writeFile, unlink, readFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { S3StorageService } from './s3-storage.service';
@@ -16,6 +16,7 @@ export interface StorageService {
     subdir?: string,
   ): Promise<string>;
   resolveImageDiskPath(imageUrl: string): string;
+  readObjectAsBuffer(imageUrl: string): Promise<Buffer>;
 }
 
 @Injectable()
@@ -80,6 +81,11 @@ export class LocalDiskStorageService implements StorageService {
       return path.join(this.uploadsRoot, imageUrl);
     }
     return path.join(this.uploadsRoot, relativePath);
+  }
+
+  async readObjectAsBuffer(imageUrl: string): Promise<Buffer> {
+    const diskPath = this.resolveImageDiskPath(imageUrl);
+    return readFile(diskPath);
   }
 
   async deleteFile(fileUrl: string): Promise<void> {

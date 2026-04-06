@@ -7,7 +7,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { STORAGE_SERVICE } from '../storage/storage.module';
 import type { StorageService } from '../storage/storage.module';
@@ -39,7 +38,6 @@ export class StoryService {
   private readonly inFlightSessions = new Set<string>();
   private readonly logger = new Logger(StoryService.name);
   private readonly cseApprovalThreshold: number;
-  private readonly serverUrl: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -53,24 +51,29 @@ export class StoryService {
       parseFloat(
         this.configService.get<string>('CSE_APPROVAL_THRESHOLD') || '0.9',
       ) || 0.9;
-    this.serverUrl =
-      this.configService.get<string>('SERVER_URL') || 'http://localhost:3000';
     this.logger.log(
-      `StoryService initialized with CSE_APPROVAL_THRESHOLD=${this.cseApprovalThreshold}, serverUrl=${this.serverUrl}`,
+      `StoryService initialized with CSE_APPROVAL_THRESHOLD=${this.cseApprovalThreshold}`,
     );
   }
 
   async startStory(userId: string, dto: StartStoryDto) {
+    this.logger.debug(`[startStory] Initializing story for session: ${dto.sessionId}`);
+    const sessionStartTime = Date.now();
+    
     const session = await this.prisma.session.findUnique({
       where: { id: dto.sessionId },
       include: { template: true, child: { include: { user: true } } },
     });
 
     if (!session) {
+      this.logger.warn(`[startStory] Session not found: ${dto.sessionId}`);
       throw new NotFoundException('Session not found.');
     }
 
     if (session.status !== 'ACTIVE') {
+      this.logger.warn(
+        `[startStory] Session ${dto.sessionId} is not active. Status: ${session.status}`,
+      );
       throw new BadRequestException('Session is not active.');
     }
 
@@ -82,6 +85,9 @@ export class StoryService {
     });
 
     if (existingNodeCount > 0) {
+      this.logger.debug(
+        `[startStory] Session ${dto.sessionId} already has ${existingNodeCount} nodes. Returning latest node.`,
+      );
       const latestNode = await this.prisma.storyNode.findFirst({
         where: { sessionId: dto.sessionId },
         orderBy: { id: 'desc' },
@@ -137,7 +143,12 @@ export class StoryService {
     let cseResult: CseResponse | null = null;
     let useFallback = false;
 
+    this.logger.log(
+      `[startStory:${dto.sessionId}] Starting LLM generation for init node (child: ${childName}, age: ${childAge}, behavior: ${template.targetBehavior})`,
+    );
+
     try {
+      const llmStartTime = Date.now();
       const result = await this.generateWithCseGate<InitLlmResponse>({
         systemPrompt,
         userMessage: 'Generate the opening story node for this session.',
@@ -145,11 +156,15 @@ export class StoryService {
         targetBehavior: template.targetBehavior,
         childAge,
       });
+      const llmDuration = Date.now() - llmStartTime;
       llmResponse = result.response;
       cseResult = result.cseResult;
+      this.logger.log(
+        `[startStory:${dto.sessionId}] LLM generation complete (${llmDuration}ms, ${llmResponse.choices.length} choices)`,
+      );
     } catch (error) {
       this.logger.error(
-        'LLM init generation failed after CSE retries, using safe fallback',
+        `[startStory:${dto.sessionId}] LLM init generation failed after CSE retries, using safe fallback: ${error.message}`,
         error,
       );
       llmResponse = { ...FALLBACK_INIT_RESPONSE };
@@ -161,6 +176,10 @@ export class StoryService {
     let audioUrl: string | null = null;
 
     if (!useFallback) {
+      this.logger.debug(
+        `[startStory:${dto.sessionId}] Generating image and audio assets (CSE approved)`,
+      );
+      const mediaStartTime = Date.now();
       const [imageResult, audioResult] = await Promise.allSettled([
         this.generateAndStoreImage(llmResponse.visual_context),
         this.generateAndStoreAudio(llmResponse.node_text),
@@ -168,19 +187,41 @@ export class StoryService {
 
       if (imageResult.status === 'fulfilled') {
         imageUrl = imageResult.value;
+        this.logger.debug(
+          `[startStory:${dto.sessionId}] Image generated: ${imageUrl}`,
+        );
       } else {
-        this.logger.warn('Image generation failed for init node', imageResult.reason);
+        this.logger.warn(
+          `[startStory:${dto.sessionId}] Image generation failed: ${imageResult.reason}`,
+        );
       }
 
       if (audioResult.status === 'fulfilled') {
         audioUrl = audioResult.value;
+        this.logger.debug(
+          `[startStory:${dto.sessionId}] Audio generated: ${audioUrl}`,
+        );
       } else {
-        this.logger.warn('TTS generation failed for init node', audioResult.reason);
+        this.logger.warn(
+          `[startStory:${dto.sessionId}] TTS generation failed: ${audioResult.reason}`,
+        );
       }
+      const mediaDuration = Date.now() - mediaStartTime;
+      this.logger.debug(
+        `[startStory:${dto.sessionId}] Media generation complete (${mediaDuration}ms)`,
+      );
+    } else {
+      this.logger.warn(
+        `[startStory:${dto.sessionId}] Skipping image/audio generation due to fallback mode`,
+      );
     }
 
     const confidenceScore = cseResult?.confidence_score ?? (useFallback ? 0.5 : 1.0);
     const isApproved = cseResult?.safety_status === 'SAFE';
+
+    this.logger.debug(
+      `[startStory:${dto.sessionId}] Creating story node (confidence: ${confidenceScore}, approved: ${isApproved})`,
+    );
 
     const storyNode = await this.prisma.storyNode.create({
       data: {
@@ -212,6 +253,11 @@ export class StoryService {
       characterAnchor: llmResponse.character_anchor,
       lastGeneratedImageUrl: imageUrl ?? '',
     });
+
+    const totalDuration = Date.now() - sessionStartTime;
+    this.logger.log(
+      `[startStory:${dto.sessionId}] Story initialization complete (${totalDuration}ms, nodeId: ${storyNode.id})`,
+    );
 
     return {
       sessionId: session.id,
@@ -282,9 +328,13 @@ export class StoryService {
   }
 
   private async processContinuation(userId: string, dto: ContinueStoryDto) {
+    const continuationStartTime = Date.now();
+    this.logger.debug(`[processContinuation:${dto.sessionId}] Starting story continuation`);
+    
     let state = this.sessionCache.get(dto.sessionId);
 
     if (!state) {
+      this.logger.debug(`[processContinuation:${dto.sessionId}] Session not in cache, rehydrating from database`);
       state = await this.rehydrateSession(dto.sessionId);
     }
 
@@ -294,6 +344,7 @@ export class StoryService {
     });
 
     if (!session || session.status !== 'ACTIVE') {
+      this.logger.warn(`[processContinuation:${dto.sessionId}] Session is not active. Status: ${session?.status}`);
       throw new BadRequestException('Session is not active.');
     }
 
@@ -305,6 +356,7 @@ export class StoryService {
     });
 
     if (!choice) {
+      this.logger.warn(`[processContinuation:${dto.sessionId}] Choice not found: ${dto.choiceId}`);
       throw new NotFoundException('Choice not found.');
     }
 
@@ -350,6 +402,10 @@ export class StoryService {
 
     state.turnCount += 1;
 
+    this.logger.debug(
+      `[processContinuation:${dto.sessionId}] Processing choice: "${choice.text}" (turn ${state.turnCount})`,
+    );
+
     const systemPrompt = this.promptService.buildContinuePrompt({
       targetBehavior: state.targetBehavior,
       previousNodeSummary: state.lastNodeText,
@@ -364,7 +420,12 @@ export class StoryService {
     let cseResult: CseResponse | null = null;
     let useFallback = false;
 
+    this.logger.log(
+      `[processContinuation:${dto.sessionId}] Starting LLM generation for continuation node (turn: ${state.turnCount}, behavior: ${state.targetBehavior})`,
+    );
+
     try {
+      const llmStartTime = Date.now();
       const result = await this.generateWithCseGate<ContinueLlmResponse>({
         systemPrompt,
         userMessage: `The child chose: "${choice.text}". Generate the next story node.`,
@@ -372,11 +433,15 @@ export class StoryService {
         targetBehavior: state.targetBehavior,
         childAge: state.childAge,
       });
+      const llmDuration = Date.now() - llmStartTime;
       llmResponse = result.response;
       cseResult = result.cseResult;
+      this.logger.log(
+        `[processContinuation:${dto.sessionId}] LLM generation complete (${llmDuration}ms, ${llmResponse.choices.length} choices)`,
+      );
     } catch (error) {
       this.logger.error(
-        'LLM continuation generation failed after CSE retries, using safe fallback',
+        `[processContinuation:${dto.sessionId}] LLM continuation generation failed after CSE retries, using safe fallback: ${error.message}`,
         error,
       );
       llmResponse = { ...FALLBACK_CONTINUE_RESPONSE };
@@ -388,24 +453,30 @@ export class StoryService {
     let audioUrl: string | null = null;
 
     if (!useFallback) {
+      this.logger.debug(
+        `[processContinuation:${dto.sessionId}] Generating image and audio assets`,
+      );
+      const mediaStartTime = Date.now();
       const imagePromise = (async () => {
         let newImageBuffer: Buffer;
         const aspectRatioPrompt = `Keep image in 16:9 aspect ratio. ${llmResponse.visual_context}`;
 
         if (state.lastGeneratedImageUrl) {
           try {
-            // Convert relative URL to absolute URL if needed
-            const absoluteUrl = this.getAbsoluteUrl(state.lastGeneratedImageUrl);
-            
-            // Fetch the image from the URL (supports both local and S3)
-            const imageResponse = await axios.get(
-              absoluteUrl,
-              { responseType: 'arraybuffer' },
+            this.logger.debug(
+              `[processContinuation:${dto.sessionId}] Fetching previous image for context (${state.lastGeneratedImageUrl})`,
             );
-            const prevImageBase64 = Buffer.from(imageResponse.data).toString(
-              'base64',
-            );
+            // Read the previous image using the storage service
+            // This works for both local disk and S3 without needing HTTP access
+            const prevImageBuffer =
+              await this.storageService.readObjectAsBuffer(
+                state.lastGeneratedImageUrl,
+              );
+            const prevImageBase64 = prevImageBuffer.toString('base64');
 
+            this.logger.debug(
+              `[processContinuation:${dto.sessionId}] Generating new image based on previous (${prevImageBase64.length} bytes)`,
+            );
             newImageBuffer = await this.geminiService.generateImageFromImage(
               aspectRatioPrompt,
               prevImageBase64,
@@ -413,14 +484,16 @@ export class StoryService {
             );
           } catch (error) {
             this.logger.warn(
-              `Failed to fetch previous image from URL ${state.lastGeneratedImageUrl}, generating from text instead`,
-              error,
+              `[processContinuation:${dto.sessionId}] Failed to fetch previous image from URL ${state.lastGeneratedImageUrl}, generating from text instead: ${error.message}`,
             );
             newImageBuffer = await this.geminiService.generateImageFromText(
               aspectRatioPrompt,
             );
           }
         } else {
+          this.logger.debug(
+            `[processContinuation:${dto.sessionId}] Generating new image from text prompt`,
+          );
           newImageBuffer = await this.geminiService.generateImageFromText(
             aspectRatioPrompt,
           );
@@ -440,23 +513,44 @@ export class StoryService {
 
       if (imageResult.status === 'fulfilled') {
         imageUrl = imageResult.value;
+        this.logger.debug(
+          `[processContinuation:${dto.sessionId}] Image generated successfully: ${imageUrl}`,
+        );
       } else {
-        this.logger.warn('Image generation failed for continuation node', imageResult.reason);
+        this.logger.warn(
+          `[processContinuation:${dto.sessionId}] Image generation failed for continuation node: ${imageResult.reason?.message}`,
+        );
       }
 
       if (audioResult.status === 'fulfilled') {
         audioUrl = audioResult.value;
+        this.logger.debug(
+          `[processContinuation:${dto.sessionId}] Audio generated successfully: ${audioUrl}`,
+        );
       } else {
-        this.logger.warn('TTS generation failed for continuation node', audioResult.reason);
+        this.logger.warn(
+          `[processContinuation:${dto.sessionId}] TTS generation failed for continuation node: ${audioResult.reason?.message}`,
+        );
       }
+
+      const mediaDuration = Date.now() - mediaStartTime;
+      this.logger.log(
+        `[processContinuation:${dto.sessionId}] Media generation complete (${mediaDuration}ms)`,
+      );
     }
 
     const isEnding = llmResponse.is_ending === true;
     const confidenceScore = cseResult?.confidence_score ?? (useFallback ? 0.5 : 1.0);
     const isApproved = cseResult?.safety_status === 'SAFE';
 
+    if (cseResult) {
+      this.logger.log(
+        `[processContinuation:${dto.sessionId}] CSE evaluation result: status=${cseResult.safety_status}, score=${confidenceScore}, isApproved=${isApproved}`,
+      );
+    }
+
     this.logger.debug(
-      `Creating story node for continuation: imageUrl=${imageUrl ? 'YES' : 'NULL'}, audioUrl=${audioUrl ? 'YES' : 'NULL'}`,
+      `[processContinuation:${dto.sessionId}] Creating story node: ${isEnding ? 'ENDING' : `${llmResponse.choices.length} choices`}, imageUrl=${imageUrl ? 'YES' : 'NULL'}, audioUrl=${audioUrl ? 'YES' : 'NULL'}`,
     );
 
     const storyNode = await this.prisma.storyNode.create({
@@ -479,11 +573,14 @@ export class StoryService {
       include: { choices: true },
     });
 
-    this.logger.debug(
-      `Created story node ${storyNode.id}: imageUrl=${storyNode.imageUrl ? 'YES' : 'NULL'}, audioUrl=${storyNode.audioUrl ? 'YES' : 'NULL'}`,
+    this.logger.log(
+      `[processContinuation:${dto.sessionId}] Story node ${storyNode.id} created successfully (${storyNode.choices?.length || 0} choices)`,
     );
 
     if (isEnding) {
+      this.logger.log(
+        `[processContinuation:${dto.sessionId}] Story session ending`,
+      );
       await this.prisma.session.update({
         where: { id: dto.sessionId },
         data: { status: 'COMPLETED', endedAt: new Date() },
@@ -504,13 +601,19 @@ export class StoryService {
       }
       
       this.sessionCache.delete(dto.sessionId);
+      const totalDuration = Date.now() - continuationStartTime;
       this.logger.log(
-        `Session ${dto.sessionId} completed. Final analytics recorded.`,
+        `[processContinuation:${dto.sessionId}] Session completed. Total duration: ${totalDuration}ms`,
       );
     } else {
       state.lastNodeText = llmResponse.node_text;
       state.lastGeneratedImageUrl = imageUrl ?? '';
       this.sessionCache.set(dto.sessionId, state);
+      
+      const totalDuration = Date.now() - continuationStartTime;
+      this.logger.log(
+        `[processContinuation:${dto.sessionId}] Continuation complete (turn ${state.turnCount}). Total duration: ${totalDuration}ms`,
+      );
     }
 
     return {
@@ -572,6 +675,7 @@ export class StoryService {
         generatedJson: JSON.stringify(llmResponse, null, 2),
       });
 
+      this.logger.debug(`CSE evaluation attempt ${attempt}: evaluating content...`);
       const cseResult = await this.geminiService.evaluateWithCse(
         cseSystemPrompt,
         cseUserPrompt,
@@ -581,7 +685,7 @@ export class StoryService {
       lastCseResult = cseResult;
 
       this.logger.log(
-        `CSE attempt ${attempt}/${CSE_MAX_RETRIES}: score=${cseResult.confidence_score}, status=${cseResult.safety_status}`,
+        `CSE attempt ${attempt}/${CSE_MAX_RETRIES}: score=${cseResult.confidence_score}, status=${cseResult.safety_status}, approved=${cseResult.confidence_score >= this.cseApprovalThreshold && cseResult.safety_status === 'SAFE'}`,
       );
 
       // Step 3: Check if approved
@@ -589,13 +693,18 @@ export class StoryService {
         cseResult.confidence_score >= this.cseApprovalThreshold &&
         cseResult.safety_status === 'SAFE'
       ) {
+        this.logger.debug(`CSE approved content on attempt ${attempt}`);
         return { response: llmResponse, cseResult };
       }
 
       // Step 4: If UNSAFE, regenerate with CSE feedback
       if (cseResult.safety_status === 'UNSAFE') {
         this.logger.warn(
-          `CSE flagged UNSAFE on attempt ${attempt}: ${cseResult.flagged_issues.join(', ')}`,
+          `CSE flagged UNSAFE on attempt ${attempt}: ${cseResult.flagged_issues.join(', ')}. Issues: ${cseResult.reasoning}`,
+        );
+      } else {
+        this.logger.warn(
+          `CSE approval score too low on attempt ${attempt} (${cseResult.confidence_score}/${this.cseApprovalThreshold}): ${cseResult.reasoning}`,
         );
       }
 
@@ -1107,24 +1216,5 @@ export class StoryService {
         flaggedForTherapistReview: analytics.flaggedForReview,
       },
     };
-  }
-
-  /**
-   * Convert relative URLs to absolute URLs.
-   * Supports both local storage (/uploads/...) and absolute URLs (http://..., https://...)
-   */
-  private getAbsoluteUrl(url: string): string {
-    // If already absolute, return as-is
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      return url;
-    }
-
-    // If relative, prepend server URL
-    if (url.startsWith('/')) {
-      return `${this.serverUrl}${url}`;
-    }
-
-    // Otherwise assume it's a relative path
-    return `${this.serverUrl}/${url}`;
   }
 }

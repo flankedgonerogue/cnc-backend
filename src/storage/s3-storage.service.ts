@@ -4,6 +4,7 @@ import {
   S3Client,
   PutObjectCommand,
   DeleteObjectCommand,
+  GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { randomBytes } from 'node:crypto';
 import type { StorageService } from './storage.module';
@@ -115,6 +116,39 @@ export class S3StorageService implements StorageService {
   resolveImageDiskPath(imageUrl: string): string {
     // For S3, we just return the URL as it's already accessible
     return imageUrl;
+  }
+
+  /**
+   * Read an object from S3 and return as buffer.
+   * Extracts the key from URL or uses key directly.
+   */
+  async readObjectAsBuffer(imageUrl: string): Promise<Buffer> {
+    try {
+      const key = this.extractKeyFromUrl(imageUrl);
+      if (!key) {
+        throw new BadRequestException(`Invalid image URL: ${imageUrl}`);
+      }
+
+      const response = await this.s3Client.send(
+        new GetObjectCommand({
+          Bucket: this.bucketName,
+          Key: key,
+        }),
+      );
+
+      // Convert the stream to a buffer
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of response.Body as any) {
+        chunks.push(chunk);
+      }
+
+      return Buffer.concat(chunks);
+    } catch (error) {
+      this.logger.error(`Failed to read object from S3: ${error}`);
+      throw new BadRequestException(
+        `Failed to read image from S3: ${error.message}`,
+      );
+    }
   }
 
   private async uploadToS3(
