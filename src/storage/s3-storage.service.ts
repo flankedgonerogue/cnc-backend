@@ -6,6 +6,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomBytes } from 'node:crypto';
 import type { StorageService } from './storage.module';
 
@@ -102,9 +103,16 @@ export class S3StorageService implements StorageService {
 
       this.logger.log(`Deleted S3 object: ${key}`);
     } catch (error) {
-      this.logger.warn(
-        `Failed to delete S3 object from URL ${fileUrl}: ${error}`,
-      );
+      if (error.Code === 'AccessDenied' || error.$metadata?.httpStatusCode === 403) {
+        this.logger.warn(
+          `S3 Access Denied on delete. IAM user needs s3:DeleteObject permission. ` +
+          `URL: ${fileUrl}`,
+        );
+      } else {
+        this.logger.warn(
+          `Failed to delete S3 object from URL ${fileUrl}: ${error.message}`,
+        );
+      }
       // Don't throw - continue operation if deletion fails
     }
   }
@@ -121,6 +129,8 @@ export class S3StorageService implements StorageService {
   /**
    * Read an object from S3 and return as buffer.
    * Extracts the key from URL or uses key directly.
+   * 
+   * Requires s3:GetObject permission in IAM policy.
    */
   async readObjectAsBuffer(imageUrl: string): Promise<Buffer> {
     try {
@@ -129,6 +139,7 @@ export class S3StorageService implements StorageService {
         throw new BadRequestException(`Invalid image URL: ${imageUrl}`);
       }
 
+      this.logger.debug(`Reading S3 object with key: ${key}`);
       const response = await this.s3Client.send(
         new GetObjectCommand({
           Bucket: this.bucketName,
@@ -144,7 +155,19 @@ export class S3StorageService implements StorageService {
 
       return Buffer.concat(chunks);
     } catch (error) {
-      this.logger.error(`Failed to read object from S3: ${error}`);
+      if (error.name === 'NoCredentialsError') {
+        this.logger.error(
+          'AWS credentials not configured or invalid. Check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.',
+        );
+      } else if (error.Code === 'AccessDenied' || error.$metadata?.httpStatusCode === 403) {
+        this.logger.error(
+          `S3 Access Denied. IAM user needs s3:GetObject permission for bucket: ${this.bucketName}. ` +
+          `URL: ${imageUrl}`,
+        );
+      } else if (error.Code === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
+        this.logger.warn(`S3 object not found: ${this.extractKeyFromUrl(imageUrl)}`);
+      }
+      this.logger.error(`Failed to read object from S3: ${error.message}`);
       throw new BadRequestException(
         `Failed to read image from S3: ${error.message}`,
       );
@@ -166,11 +189,31 @@ export class S3StorageService implements StorageService {
         }),
       );
 
-      const url = `${this.bucketUrl}/${key}`;
-      this.logger.log(`Uploaded file to S3: ${url}`);
-      return url;
+      // Generate a signed URL valid for 7 days (604800 seconds)
+      // This allows the file to be accessed from a web browser without AWS credentials
+      const signedUrl = await getSignedUrl(
+        this.s3Client,
+        new GetObjectCommand({
+          Bucket: this.bucketName,
+          Key: key,
+        }),
+        { expiresIn: 604800 }, // 7 days
+      );
+
+      this.logger.log(`Uploaded file to S3 with signed URL: ${key}`);
+      return signedUrl;
     } catch (error) {
-      this.logger.error(`Failed to upload to S3: ${error}`);
+      if (error.name === 'NoCredentialsError') {
+        this.logger.error(
+          'AWS credentials not configured or invalid. Check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.',
+        );
+      } else if (error.Code === 'AccessDenied' || error.$metadata?.httpStatusCode === 403) {
+        this.logger.error(
+          `S3 Access Denied. IAM user needs s3:PutObject permission for bucket: ${this.bucketName}. ` +
+          `Key: ${key}`,
+        );
+      }
+      this.logger.error(`Failed to upload to S3: ${error.message}`);
       throw new BadRequestException(`S3 upload failed: ${error.message}`);
     }
   }
@@ -180,19 +223,29 @@ export class S3StorageService implements StorageService {
       return null;
     }
 
+    // Remove query parameters (for signed URLs)
+    const urlWithoutParams = fileUrl.split('?')[0];
+
     // Handle bucket URL format: https://bucket.s3.region.amazonaws.com/key
     // or custom URL format: https://custom-url.com/key
-    if (fileUrl.startsWith(this.bucketUrl)) {
-      return fileUrl.slice(this.bucketUrl.length + 1);
+    if (urlWithoutParams.startsWith(this.bucketUrl)) {
+      let key = urlWithoutParams.slice(this.bucketUrl.length + 1);
+      // Decode URL encoding if present
+      try {
+        key = decodeURIComponent(key);
+      } catch {
+        // If decoding fails, use the original
+      }
+      return key;
     }
 
-    // If it's already a key, return it
+    // If it's already a key (no http(s)), return it
     if (
-      !fileUrl.startsWith('http://') &&
-      !fileUrl.startsWith('https://') &&
-      !fileUrl.startsWith('/')
+      !urlWithoutParams.startsWith('http://') &&
+      !urlWithoutParams.startsWith('https://') &&
+      !urlWithoutParams.startsWith('/')
     ) {
-      return fileUrl;
+      return urlWithoutParams;
     }
 
     return null;
