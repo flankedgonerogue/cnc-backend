@@ -381,6 +381,9 @@ export class StoryService {
     // Get the session start time for duration calculation
     const sessionDuration = Date.now() - session.startedAt.getTime();
 
+    // Track current choice's behavior for back-to-back positive check
+    const currentChoiceBehaviorTag = choice.behavioralTag;
+
     // Create interaction with comprehensive behavioral metrics
     await this.prisma.interaction.create({
       data: {
@@ -402,8 +405,13 @@ export class StoryService {
 
     state.turnCount += 1;
 
+    // Check for back-to-back positive choices
+    const backToBackPositive =
+      state.lastChoiceBehaviorTag === 'Positive' &&
+      currentChoiceBehaviorTag === 'Positive';
+
     this.logger.debug(
-      `[processContinuation:${dto.sessionId}] Processing choice: "${choice.text}" (turn ${state.turnCount})`,
+      `[processContinuation:${dto.sessionId}] Processing choice: "${choice.text}" (turn ${state.turnCount}, behavior: ${currentChoiceBehaviorTag}, back-to-back positive: ${backToBackPositive})`,
     );
 
     const systemPrompt = this.promptService.buildContinuePrompt({
@@ -543,6 +551,24 @@ export class StoryService {
     const confidenceScore = cseResult?.confidence_score ?? (useFallback ? 0.5 : 1.0);
     const isApproved = cseResult?.safety_status === 'SAFE';
 
+    // HARD LIMIT: Force story ending if:
+    // 1. Turn >= 5 (hard limit), OR
+    // 2. Back-to-back positive choices (positive reinforcement moment)
+    const hardLimitReached = state.turnCount >= 5;
+    const finalIsEnding = isEnding || hardLimitReached || backToBackPositive;
+
+    if (hardLimitReached && !isEnding) {
+      this.logger.log(
+        `[processContinuation:${dto.sessionId}] Hard turn limit reached (${state.turnCount}). Forcing story ending.`,
+      );
+    }
+
+    if (backToBackPositive && !isEnding) {
+      this.logger.log(
+        `[processContinuation:${dto.sessionId}] Back-to-back positive choices detected. Ending story at natural high point.`,
+      );
+    }
+
     if (cseResult) {
       this.logger.log(
         `[processContinuation:${dto.sessionId}] CSE evaluation result: status=${cseResult.safety_status}, score=${confidenceScore}, isApproved=${isApproved}`,
@@ -550,7 +576,7 @@ export class StoryService {
     }
 
     this.logger.debug(
-      `[processContinuation:${dto.sessionId}] Creating story node: ${isEnding ? 'ENDING' : `${llmResponse.choices.length} choices`}, imageUrl=${imageUrl ? 'YES' : 'NULL'}, audioUrl=${audioUrl ? 'YES' : 'NULL'}`,
+      `[processContinuation:${dto.sessionId}] Creating story node: ${finalIsEnding ? 'ENDING' : `${llmResponse.choices.length} choices`}, imageUrl=${imageUrl ? 'YES' : 'NULL'}, audioUrl=${audioUrl ? 'YES' : 'NULL'}`,
     );
 
     const storyNode = await this.prisma.storyNode.create({
@@ -561,7 +587,7 @@ export class StoryService {
         audioUrl,
         confidenceScore,
         isApproved,
-        choices: isEnding
+        choices: finalIsEnding
           ? undefined
           : {
               create: llmResponse.choices.map((c) => ({
@@ -577,7 +603,7 @@ export class StoryService {
       `[processContinuation:${dto.sessionId}] Story node ${storyNode.id} created successfully (${storyNode.choices?.length || 0} choices)`,
     );
 
-    if (isEnding) {
+    if (finalIsEnding) {
       this.logger.log(
         `[processContinuation:${dto.sessionId}] Story session ending`,
       );
@@ -608,6 +634,7 @@ export class StoryService {
     } else {
       state.lastNodeText = llmResponse.node_text;
       state.lastGeneratedImageUrl = imageUrl ?? '';
+      state.lastChoiceBehaviorTag = currentChoiceBehaviorTag;
       this.sessionCache.set(dto.sessionId, state);
       
       const totalDuration = Date.now() - continuationStartTime;
@@ -618,7 +645,7 @@ export class StoryService {
 
     return {
       sessionId: dto.sessionId,
-      isEnding,
+      isEnding: finalIsEnding,
       node: {
         id: storyNode.id,
         textContent: storyNode.textContent,

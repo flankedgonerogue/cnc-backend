@@ -9,4 +9,5 @@ export interface SessionState {
   visualStyle: string;
   characterAnchor: string;
   lastGeneratedImageUrl: string;
+  lastChoiceBehaviorTag?: string | null; // Track previous choice for back-to-back positive check
 }
