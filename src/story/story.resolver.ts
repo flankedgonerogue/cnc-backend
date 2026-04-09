@@ -73,7 +73,9 @@ export class StoryResolver {
     }
 
     if (typeof timeTakenMs !== 'number' || timeTakenMs < 0) {
-      throw new BadRequestException('timeTakenMs must be a non-negative number');
+      throw new BadRequestException(
+        'timeTakenMs must be a non-negative number',
+      );
     }
 
     const dto: ContinueStoryDto = { sessionId, choiceId, timeTakenMs };
@@ -84,7 +86,7 @@ export class StoryResolver {
     name: 'getSessionBehavioralAnalytics',
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.THERAPIST, Role.CHILD)
+  @Roles(Role.THERAPIST, Role.CHILD, Role.GUARDIAN)
   async getSessionBehavioralAnalytics(
     @Args('sessionId') sessionId: string,
     @Context() context: any,

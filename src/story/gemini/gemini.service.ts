@@ -124,9 +124,12 @@ export class GeminiService implements OnModuleInit {
 
   async generateImageFromText(prompt: string): Promise<Buffer> {
     try {
+      // Add optimization instruction to prompt
+      const optimizedPrompt = `${prompt} Optimize for fast generation - use moderate detail level, not overly detailed.`;
+
       const response = await this.ai.models.generateContent({
         model: this.imageModel,
-        contents: prompt,
+        contents: optimizedPrompt,
         config: {
           responseModalities: ['IMAGE'],
         },
@@ -152,11 +155,19 @@ export class GeminiService implements OnModuleInit {
     referenceMimeType: string = 'image/png',
   ): Promise<Buffer> {
     try {
+      // Enhance prompt with character consistency and quality settings
+      const enhancedEditPrompt = [
+        `Keep the character design and overall composition identical.`,
+        `Only change: action, expression, and background details.`,
+        `Optimize for fast generation - use moderate detail level.`,
+        `Description: ${editPrompt}`,
+      ].join(' ');
+
       const response = await this.ai.models.generateContent({
         model: this.imageModel,
         contents: [
           {
-            text: `Keep the character design and overall composition identical. Only change the action, expression, and background details as described: ${editPrompt}`,
+            text: enhancedEditPrompt,
           },
           {
             inlineData: {

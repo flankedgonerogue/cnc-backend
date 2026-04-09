@@ -181,7 +181,13 @@ export class StoryService {
       );
       const mediaStartTime = Date.now();
       const [imageResult, audioResult] = await Promise.allSettled([
-        this.generateAndStoreImage(llmResponse.visual_context),
+        this.generateAndStoreImage(
+          llmResponse.visual_context,
+          llmResponse.character_anchor,
+          llmResponse.visual_style,
+          template.mainCharacter,
+          template.setting,
+        ),
         this.generateAndStoreAudio(llmResponse.node_text),
       ]);
 
@@ -247,10 +253,12 @@ export class StoryService {
       templateId: session.templateId,
       turnCount: 0,
       targetBehavior: template.targetBehavior,
+      storySetting: template.setting,
+      mainCharacter: template.mainCharacter,
       childAge,
       lastNodeText: llmResponse.node_text,
       visualStyle: llmResponse.visual_style,
-      characterAnchor: llmResponse.character_anchor,
+      characterAnchor: llmResponse.character_anchor || template.mainCharacter,
       lastGeneratedImageUrl: imageUrl ?? '',
     });
 
@@ -409,6 +417,8 @@ export class StoryService {
     const backToBackPositive =
       state.lastChoiceBehaviorTag === 'Positive' &&
       currentChoiceBehaviorTag === 'Positive';
+    const hardLimitReached = state.turnCount >= 5;
+    const forceEndingThisTurn = hardLimitReached || backToBackPositive;
 
     this.logger.debug(
       `[processContinuation:${dto.sessionId}] Processing choice: "${choice.text}" (turn ${state.turnCount}, behavior: ${currentChoiceBehaviorTag}, back-to-back positive: ${backToBackPositive})`,
@@ -421,6 +431,8 @@ export class StoryService {
       turnCount: state.turnCount,
       visualStyle: state.visualStyle,
       characterAnchor: state.characterAnchor,
+      setting: state.storySetting,
+      mainCharacter: state.mainCharacter,
     });
 
     // --- CSE-gated generation loop ---
@@ -436,7 +448,9 @@ export class StoryService {
       const llmStartTime = Date.now();
       const result = await this.generateWithCseGate<ContinueLlmResponse>({
         systemPrompt,
-        userMessage: `The child chose: "${choice.text}". Generate the next story node.`,
+        userMessage: forceEndingThisTurn
+          ? `The child chose: "${choice.text}". This node MUST end the story now with clear emotional closure, a completed resolution, and no new tasks, no new problems, and no "what next" setup. Set is_ending to true and make the text feel final.`
+          : `The child chose: "${choice.text}". Continue the same story world with the same main character, same setting, and same visual identity as prior nodes.`,
         jsonSchema: CONTINUE_RESPONSE_SCHEMA,
         targetBehavior: state.targetBehavior,
         childAge: state.childAge,
@@ -456,6 +470,17 @@ export class StoryService {
       useFallback = true;
     }
 
+    if (forceEndingThisTurn) {
+      this.logger.debug(
+        `[processContinuation:${dto.sessionId}] Applying forced-ending normalization (${hardLimitReached ? 'hard_limit' : 'positive_streak'})`,
+      );
+      llmResponse = this.normalizeForcedEndingResponse(
+        llmResponse,
+        state.targetBehavior,
+        hardLimitReached ? 'hard_limit' : 'positive_streak',
+      );
+    }
+
     // --- Image + TTS generation in parallel (only if CSE approved) ---
     let imageUrl: string | null = state.lastGeneratedImageUrl || null;
     let audioUrl: string | null = null;
@@ -467,7 +492,17 @@ export class StoryService {
       const mediaStartTime = Date.now();
       const imagePromise = (async () => {
         let newImageBuffer: Buffer;
-        const aspectRatioPrompt = `Keep image in 16:9 aspect ratio. ${llmResponse.visual_context}`;
+        // Build enhanced image prompt with character consistency
+        const enhancedVisualPrompt = [
+          `Keep image in 16:9 aspect ratio.`,
+          `Main character must remain the same: ${state.mainCharacter}.`,
+          `Story setting must remain the same: ${state.storySetting}.`,
+          `Character MUST remain identical: ${state.characterAnchor}`,
+          `Visual Style: ${state.visualStyle}`,
+          `Continuity from previous node summary: ${state.lastNodeText}`,
+          `Scene: ${llmResponse.visual_context}`,
+          `Use lower detail level for faster generation.`,
+        ].join(' ');
 
         if (state.lastGeneratedImageUrl) {
           try {
@@ -486,7 +521,7 @@ export class StoryService {
               `[processContinuation:${dto.sessionId}] Generating new image based on previous (${prevImageBase64.length} bytes)`,
             );
             newImageBuffer = await this.geminiService.generateImageFromImage(
-              aspectRatioPrompt,
+              enhancedVisualPrompt,
               prevImageBase64,
               'image/png',
             );
@@ -495,7 +530,7 @@ export class StoryService {
               `[processContinuation:${dto.sessionId}] Failed to fetch previous image from URL ${state.lastGeneratedImageUrl}, generating from text instead: ${error.message}`,
             );
             newImageBuffer = await this.geminiService.generateImageFromText(
-              aspectRatioPrompt,
+              enhancedVisualPrompt,
             );
           }
         } else {
@@ -503,7 +538,7 @@ export class StoryService {
             `[processContinuation:${dto.sessionId}] Generating new image from text prompt`,
           );
           newImageBuffer = await this.geminiService.generateImageFromText(
-            aspectRatioPrompt,
+            enhancedVisualPrompt,
           );
         }
 
@@ -551,10 +586,7 @@ export class StoryService {
     const confidenceScore = cseResult?.confidence_score ?? (useFallback ? 0.5 : 1.0);
     const isApproved = cseResult?.safety_status === 'SAFE';
 
-    // HARD LIMIT: Force story ending if:
-    // 1. Turn >= 5 (hard limit), OR
-    // 2. Back-to-back positive choices (positive reinforcement moment)
-    const hardLimitReached = state.turnCount >= 5;
+    // Ending is true if the model ended naturally, or if we forced an ending.
     const finalIsEnding = isEnding || hardLimitReached || backToBackPositive;
 
     if (hardLimitReached && !isEnding) {
@@ -784,10 +816,51 @@ export class StoryService {
     );
   }
 
-  private async generateAndStoreImage(visualContext: string): Promise<string> {
-    const aspectRatioPrompt = `Generate image in 16:9 aspect ratio. ${visualContext}`;
+  private normalizeForcedEndingResponse(
+    response: ContinueLlmResponse,
+    targetBehavior: string,
+    reason: 'hard_limit' | 'positive_streak',
+  ): ContinueLlmResponse {
+    const endingText =
+      reason === 'positive_streak'
+        ? `That was a wonderful choice, and everyone feels happy and connected. This adventure ends with a proud celebration of ${targetBehavior.toLowerCase()}.`
+        : `You have reached the end of this adventure, and everyone feels proud of what you learned. The story closes with a calm, happy moment of ${targetBehavior.toLowerCase()}.`;
+
+    const hasOpenLoopCue =
+      /\b(now|next|then|after that|what should|what would|need to)\b/i.test(
+        response.node_text,
+      ) || response.node_text.trim().endsWith('?');
+
+    return {
+      ...response,
+      is_ending: true,
+      choices: [],
+      node_text: hasOpenLoopCue ? endingText : response.node_text,
+    };
+  }
+
+  private async generateAndStoreImage(
+    visualContext: string,
+    characterAnchor?: string,
+    visualStyle?: string,
+    mainCharacter?: string,
+    setting?: string,
+  ): Promise<string> {
+    // Build enhanced image prompt with character consistency
+    const enhancedPrompt = [
+      `Generate image in 16:9 aspect ratio.`,
+      mainCharacter ? `Main character (do not change type/species): ${mainCharacter}` : '',
+      setting ? `Keep scene in this setting: ${setting}` : '',
+      characterAnchor ? `Character: ${characterAnchor}` : '',
+      visualStyle ? `Style: ${visualStyle}` : '',
+      `Scene: ${visualContext}`,
+      `Use lower detail level for faster generation.`,
+    ]
+      .filter(Boolean)
+      .join(' ');
+
     const imageBuffer =
-      await this.geminiService.generateImageFromText(aspectRatioPrompt);
+      await this.geminiService.generateImageFromText(enhancedPrompt);
     return this.storageService.uploadBuffer(
       imageBuffer,
       'image/png',
@@ -862,10 +935,12 @@ export class StoryService {
       templateId: session.templateId,
       turnCount: Math.max(0, nodeCount - 1),
       targetBehavior: session.template.targetBehavior,
+      storySetting: session.template.setting,
+      mainCharacter: session.template.mainCharacter,
       childAge,
       lastNodeText: latestNode?.textContent ?? '',
       visualStyle: session.template.visualStyle,
-      characterAnchor: '',
+      characterAnchor: session.template.mainCharacter,
       lastGeneratedImageUrl: latestNode?.imageUrl ?? '',
     };
 

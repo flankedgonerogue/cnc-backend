@@ -57,6 +57,8 @@ export class PromptService implements OnModuleInit {
     turnCount: number;
     visualStyle: string;
     characterAnchor: string;
+    setting: string;
+    mainCharacter: string;
   }): string {
     return this.contPromptTemplate
       .replace(/\{\{Target_Behavior\}\}/g, params.targetBehavior)
@@ -64,7 +66,9 @@ export class PromptService implements OnModuleInit {
       .replace(/\{\{Child_Choice\}\}/g, params.childChoice)
       .replace(/\{\{Turn_Count\}\}/g, String(params.turnCount))
       .replace(/\{\{Visual_Style\}\}/g, params.visualStyle)
-      .replace(/\{\{Character_Anchor\}\}/g, params.characterAnchor);
+      .replace(/\{\{Character_Anchor\}\}/g, params.characterAnchor)
+      .replace(/\{\{Setting\}\}/g, params.setting)
+      .replace(/\{\{Main_Character\}\}/g, params.mainCharacter);
   }
 
   buildCseSystemPrompt(params: {

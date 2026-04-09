@@ -4,6 +4,8 @@ export interface SessionState {
   templateId: string;
   turnCount: number;
   targetBehavior: string;
+  storySetting: string;
+  mainCharacter: string;
   childAge: number;
   lastNodeText: string;
   visualStyle: string;
