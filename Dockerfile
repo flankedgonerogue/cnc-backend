@@ -30,15 +30,18 @@ RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Run as non-root user for security
-USER node
-
 # Copy only what is necessary from the builder stage
 COPY --from=builder --chown=node:node /app/package.json ./
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/prisma ./prisma
 COPY --from=builder --chown=node:node /app/prompts ./prompts
+
+# Create uploads directory with proper permissions
+RUN mkdir -p uploads && chown node:node uploads
+
+# Run as non-root user for security
+USER node
 
 EXPOSE 3000
 
