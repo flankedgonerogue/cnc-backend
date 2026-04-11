@@ -53,3 +53,21 @@ export class VerifyResponse {
   @Field(() => UserAuth)
   user: UserAuth;
 }
+
+@ObjectType()
+export class PasswordResetResponse {
+  @Field()
+  message: string;
+
+  @Field()
+  success: boolean;
+}
+
+@ObjectType()
+export class ValidateResetTokenResponse {
+  @Field()
+  valid: boolean;
+
+  @Field({ nullable: true })
+  message?: string;
+}

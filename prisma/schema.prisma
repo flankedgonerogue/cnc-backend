@@ -33,6 +33,11 @@ model User {
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
 
+  // Password reset fields
+  passwordResetToken        String?   @unique
+  passwordResetTokenExpiresAt DateTime?
+  emailVerified             Boolean   @default(false)
+
   // Profile links
   therapistProfile TherapistProfile?
   guardianProfile  GuardianProfile?

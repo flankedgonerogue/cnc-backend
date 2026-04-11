@@ -13,6 +13,9 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { SetRoleDto } from './dto/set-role.dto';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ValidateResetTokenDto } from './dto/validate-reset-token.dto';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
@@ -121,5 +124,44 @@ export class AuthController {
       valid: true,
       user: req.user,
     };
+  }
+
+  /**
+   * Request password reset
+   * POST /auth/password-reset/request
+   */
+  @Post('password-reset/request')
+  @HttpCode(HttpStatus.OK)
+  async requestPasswordReset(
+    @Body() requestPasswordResetDto: RequestPasswordResetDto,
+  ) {
+    return this.authService.requestPasswordReset(
+      requestPasswordResetDto.email,
+    );
+  }
+
+  /**
+   * Validate password reset token
+   * POST /auth/password-reset/validate
+   */
+  @Post('password-reset/validate')
+  @HttpCode(HttpStatus.OK)
+  async validateResetToken(
+    @Body() validateResetTokenDto: ValidateResetTokenDto,
+  ) {
+    return this.authService.validateResetToken(validateResetTokenDto.token);
+  }
+
+  /**
+   * Reset password with token
+   * POST /auth/password-reset/confirm
+   */
+  @Post('password-reset/confirm')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    return this.authService.resetPassword(
+      resetPasswordDto.token,
+      resetPasswordDto.newPassword,
+    );
   }
 }

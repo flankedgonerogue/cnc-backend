@@ -32,6 +32,9 @@ export class UsersService {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       deletedAt: user.deletedAt ?? undefined,
+      passwordResetToken: user.passwordResetToken ?? undefined,
+      passwordResetTokenExpiresAt: user.passwordResetTokenExpiresAt ?? undefined,
+      emailVerified: user.emailVerified ?? undefined,
       therapistProfile: user.therapistProfile ?? undefined,
       guardianProfile: user.guardianProfile ?? undefined,
       childProfile: user.childProfile ?? undefined,
@@ -349,5 +352,64 @@ export class UsersService {
     const { passwordHash: _passwordHash, ...result } = user;
     void _passwordHash;
     return result;
+  }
+
+  /**
+   * Hash a password using bcrypt
+   */
+  async hashPassword(password: string): Promise<string> {
+    return bcrypt.hash(password, 10);
+  }
+
+  /**
+   * Update password reset token for a user
+   */
+  async updatePasswordResetToken(
+    userId: string,
+    hashedToken: string,
+    expiresAt: Date,
+  ): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordResetToken: hashedToken,
+        passwordResetTokenExpiresAt: expiresAt,
+      },
+    });
+  }
+
+  /**
+   * Find user by reset token
+   */
+  async findByResetToken(hashedToken: string): Promise<User | undefined> {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        passwordResetToken: hashedToken,
+        deletedAt: null,
+      },
+      include: {
+        therapistProfile: true,
+        guardianProfile: true,
+        childProfile: true,
+      },
+    });
+    return user ? this.mapToUserEntity(user) : undefined;
+  }
+
+  /**
+   * Update password and clear reset token
+   */
+  async updatePasswordAndClearResetToken(
+    userId: string,
+    passwordHash: string,
+  ): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash,
+        passwordResetToken: null,
+        passwordResetTokenExpiresAt: null,
+      },
+    });
   }
 }

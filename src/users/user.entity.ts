@@ -101,6 +101,13 @@ export class User {
   @Field(() => Date, { nullable: true })
   deletedAt?: Date;
 
+  // Password reset fields (not exposed via GraphQL)
+  passwordResetToken?: string;
+  passwordResetTokenExpiresAt?: Date;
+
+  // Email verification (not exposed via GraphQL)
+  emailVerified?: boolean;
+
   @Field(() => TherapistProfile, { nullable: true })
   therapistProfile?: TherapistProfile;
 

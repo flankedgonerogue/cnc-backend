@@ -4,7 +4,16 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { SetRoleDto } from './dto/set-role.dto';
-import { AuthResponse, UserAuth, VerifyResponse } from './dto/auth.type';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ValidateResetTokenDto } from './dto/validate-reset-token.dto';
+import {
+  AuthResponse,
+  UserAuth,
+  VerifyResponse,
+  PasswordResetResponse,
+  ValidateResetTokenResponse,
+} from './dto/auth.type';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Resolver()
@@ -54,5 +63,31 @@ export class AuthResolver {
       valid: true,
       user: context.req.user,
     };
+  }
+
+  @Mutation(() => PasswordResetResponse, { name: 'requestPasswordReset' })
+  async requestPasswordReset(
+    @Args('requestInput') requestPasswordResetDto: RequestPasswordResetDto,
+  ) {
+    return this.authService.requestPasswordReset(
+      requestPasswordResetDto.email,
+    );
+  }
+
+  @Mutation(() => ValidateResetTokenResponse, { name: 'validateResetToken' })
+  async validateResetToken(
+    @Args('validateInput') validateResetTokenDto: ValidateResetTokenDto,
+  ) {
+    return this.authService.validateResetToken(validateResetTokenDto.token);
+  }
+
+  @Mutation(() => PasswordResetResponse, { name: 'resetPassword' })
+  async resetPassword(
+    @Args('resetInput') resetPasswordDto: ResetPasswordDto,
+  ) {
+    return this.authService.resetPassword(
+      resetPasswordDto.token,
+      resetPasswordDto.newPassword,
+    );
   }
 }
