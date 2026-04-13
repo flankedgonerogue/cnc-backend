@@ -1,6 +1,6 @@
-# API Endpoints — Auth + Templates + Admin
+# API Reference — Auth + Admin
 
-This document describes the authentication, admin management, and social story template endpoints for the CNC Backend.
+This document describes **authentication** (REST and GraphQL) and **admin** HTTP endpoints for the CNC Backend. **Story templates** for therapists are GraphQL-only — see `docs/template/endpoints.md`.
 
 ## Base URL
 
@@ -8,57 +8,87 @@ This document describes the authentication, admin management, and social story t
 
 ## Environment
 
-Required at runtime:
+**Required**
 
-- `DATABASE_URL` (required)
-- `JWT_SECRET` (required)
+- `DATABASE_URL`
+- `JWT_SECRET`
+
+**Common**
+
 - `JWT_EXPIRES_IN` (optional, default `7d`)
-- `GOOGLE_CLIENT_ID` (optional, required for Google login)
-- `GOOGLE_CLIENT_SECRET` (optional, required for Google login)
+- `PORT` (optional, default `3000`)
+- `FRONTEND_URL` (optional; used in password-reset emails, default `http://localhost:3000` in code paths — align with your frontend for reset links)
+
+**Google OAuth** (optional; required only if you use Google login)
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_CALLBACK_URL` (optional, default `http://localhost:3000/auth/google/callback`)
 
-## Authentication Model
+**Email (password reset)** — configure `SMTP_*` in `.env` so `EmailService` can send reset messages. If SMTP is not configured or sending fails, the API still returns a generic success message (see password reset).
 
-- Users are stored in PostgreSQL via Prisma.
-- Passwords are stored as `passwordHash`.
-- OAuth users have no `passwordHash`.
-- Roles are `ADMIN`, `THERAPIST`, `GUARDIAN`, or `CHILD`.
-- Deactivated users (where `deletedAt` is set) cannot authenticate.
-- Role initialization for OAuth users only allows `GUARDIAN` or `CHILD`.
-- Template routes are restricted to `THERAPIST` users and protected by ownership checks.
+## Authentication model
+
+- Users live in PostgreSQL via Prisma; passwords stored as `passwordHash` (OAuth users have no password).
+- Roles: `ADMIN`, `THERAPIST`, `GUARDIAN`, `CHILD`.
+- Self-service **registration** allows only **`GUARDIAN`** or **`CHILD`** (`THERAPIST` / `ADMIN` are rejected).
+- Registering as **`CHILD`** requires `therapistEmail` pointing at an existing therapist user with a therapist profile.
+- OAuth users without a role must call **`POST /auth/oauth/role`** (or GraphQL `setOAuthRole`) once; allowed values are **`GUARDIAN`** or **`CHILD`** only.
+- Deactivated users (`deletedAt` set) cannot authenticate.
+- Template operations (GraphQL) are restricted to **`THERAPIST`** and ownership rules where applicable.
 
 ---
 
-# Auth Endpoints
+# Auth — REST (`/auth`)
+
+Unless noted, send `Content-Type: application/json` for bodies.
 
 ## Register
 
-Create a new user with email + password.
+`POST /auth/register`
 
-```/dev/null/http.txt#L1-8
+Creates a user with email and password. Returns a JWT and user payload.
+
+```http
 POST /auth/register
 Content-Type: application/json
 
 {
   "email": "user@example.com",
   "password": "test123456",
-  "role": "GUARDIAN"
+  "role": "GUARDIAN",
+  "firstName": "Optional",
+  "lastName": "Optional"
 }
 ```
 
+**Body fields**
+
+| Field | Required | Notes |
+|-------|----------|--------|
+| `email` | yes | Valid email |
+| `password` | yes | Min length **6** |
+| `role` | yes | **`GUARDIAN`** or **`CHILD`** only |
+| `firstName`, `lastName` | no | Strings |
+| `therapistEmail` | required if `role` is **`CHILD`** | Must match a user who has a **therapist profile** |
+
 **Responses**
 
-- `201 Created` with `access_token` and `user`
-- `409 Conflict` if email already exists
-- `401 Unauthorized` if role is `THERAPIST`
+- `201 Created` — `{ access_token, user }` (`user` has no `passwordHash`)
+- `400 Bad Request` — validation failure; or child registration without therapist / invalid therapist
+- `401 Unauthorized` — `role` is `THERAPIST` or `ADMIN`
+- `404 Not Found` — `therapistEmail` does not resolve to a therapist (child flow)
+- `409 Conflict` — email already registered (password or Google-only messaging in the error detail)
 
 ---
 
 ## Login
 
-Authenticate with email + password.
+`POST /auth/login`
 
-```/dev/null/http.txt#L1-7
+Uses **Local** strategy: credentials validated before handler runs.
+
+```http
 POST /auth/login
 Content-Type: application/json
 
@@ -70,87 +100,71 @@ Content-Type: application/json
 
 **Responses**
 
-- `200 OK` with `access_token` and `user`
-- `401 Unauthorized` if credentials are invalid
-- `401 Unauthorized` if the account is OAuth-only (no password set)
+- `200 OK` — `{ access_token, user }`
+- `401 Unauthorized` — wrong password; deactivated account; or **OAuth-only** account (“use Google to sign in”)
 
 ---
 
-## Profile (Protected)
+## Profile (protected)
 
-Fetch the current user profile.
+`GET /auth/profile`
 
-```/dev/null/http.txt#L1-3
+```http
 GET /auth/profile
 Authorization: Bearer <access_token>
 ```
 
 **Responses**
 
-- `200 OK` with user data
-- `401 Unauthorized` if token is missing/invalid
+- `200 OK` — current user (sanitized)
+- `401 Unauthorized` — missing/invalid JWT, or user not found
 
 ---
 
-## Verify Token (Protected)
+## Verify token (protected)
 
-Validate the JWT and echo the user payload.
+`GET /auth/verify`
 
-```/dev/null/http.txt#L1-3
+```http
 GET /auth/verify
 Authorization: Bearer <access_token>
 ```
 
 **Responses**
 
-- `200 OK` with `{ valid: true, user }`
-- `401 Unauthorized` if token is missing/invalid
+- `200 OK` — `{ valid: true, user }`
+- `401 Unauthorized` — missing/invalid JWT
 
 ---
 
-## Google OAuth Initiation
+## Google OAuth
 
-Start the Google OAuth flow.
+### Start flow
 
-```/dev/null/http.txt#L1-1
-GET /auth/google
-```
+`GET /auth/google`
 
-**Behavior**
+Redirects to Google (no JSON body). Requires Google OAuth env vars.
 
-- Redirects the user to Google’s consent screen.
+### Callback
 
----
-
-## Google OAuth Callback
-
-Handle the OAuth callback.
-
-```/dev/null/http.txt#L1-1
-GET /auth/google/callback
-```
+`GET /auth/google/callback`
 
 **Responses**
 
-- `200 OK` with:
-  - `access_token`
-  - `user`
-  - `isNew` (boolean)
-  - `roleRequired` (boolean, true if role is not set)
-  - `message`
-
-**Notes**
-
-- If the email exists with a password, login is rejected.
-- If the user is new, a record is created without a password.
+- `200 OK` — `{ access_token, user, isNew, roleRequired, message }`
+  - `isNew` — first-time Google user for this email
+  - `roleRequired` — `true` when `user.role` is not set (call OAuth role endpoint)
+- `401 Unauthorized` — e.g. deactivated user, or email already registered with a **password** (must use email/password login)
 
 ---
 
-## OAuth Role Initialization (Protected)
+## OAuth role initialization (protected)
 
-Set role for OAuth users once.
+`POST /auth/oauth/role`
 
-```/dev/null/http.txt#L1-7
+One-time role assignment for OAuth users. **`GUARDIAN`** or **`CHILD`** only.
+
+```http
 POST /auth/oauth/role
 Authorization: Bearer <access_token>
 Content-Type: application/json
@@ -162,132 +176,114 @@ Content-Type: application/json
 
 **Responses**
 
-- `200 OK` with updated user
-- `400/401` if role is invalid or already set
-- `401 Unauthorized` if role is `THERAPIST`
+- `200 OK` — updated user
+- `401 Unauthorized` — cannot assign `THERAPIST` or `ADMIN`; invalid/missing JWT
+- `409 Conflict` — role was already set for this user
 
 ---
 
-# Templates Endpoints (Therapist Only)
+## Password reset — request
 
-All template endpoints require:
+`POST /auth/password-reset/request`
 
-- `Authorization: Bearer <access_token>`
-- Role: `THERAPIST`
-- Ownership enforced per `templateId`
+Always returns the same generic message whether or not the email exists (no enumeration). Only users with a **password** (`passwordHash`) receive a token email when SMTP works.
 
-## Create Template
-
-```/dev/null/http.txt#L1-10
-POST /templates
-Authorization: Bearer <access_token>
+```http
+POST /auth/password-reset/request
 Content-Type: application/json
 
 {
-  "targetBehavior": "Turn-taking",
-  "setting": "Playground",
-  "mainCharacter": "Two kids sharing a ball",
-  "emotionalTone": "CALM",
-  "promptSuggestion": "Keep it short"
+  "email": "user@example.com"
 }
 ```
 
 **Responses**
 
-- `201 Created` with template record
-- `401 Unauthorized` if token is missing/invalid
-- `403 Forbidden` if role is not `THERAPIST`
+- `200 OK` — `{ message }` (generic success text)
 
 ---
 
-## List Templates
+## Password reset — validate token
 
-Supports basic pagination via `take` and `skip`.
+`POST /auth/password-reset/validate`
 
-```/dev/null/http.txt#L1-1
-GET /templates?take=20&skip=0
-```
+Check whether a raw token from the email link is still valid (not consumed; not expired).
 
-**Responses**
-
-- `200 OK` array of templates belonging to the therapist
-- `401 Unauthorized` if token is missing/invalid
-- `403 Forbidden` if role is not `THERAPIST`
-
----
-
-## Get Template (Ownership Protected)
-
-```/dev/null/http.txt#L1-1
-GET /templates/{templateId}
-```
-
-**Responses**
-
-- `200 OK` with template record
-- `401 Unauthorized` if token is missing/invalid
-- `403 Forbidden` if not the owner
-- `404 Not Found` if template does not exist
-
----
-
-## Update Template (Ownership Protected)
-
-```/dev/null/http.txt#L1-9
-PATCH /templates/{templateId}
-Authorization: Bearer <access_token>
+```http
+POST /auth/password-reset/validate
 Content-Type: application/json
 
 {
-  "targetBehavior": "Updated behavior"
+  "token": "<token-from-email>"
 }
 ```
 
 **Responses**
 
-- `200 OK` with updated template record
-- `401 Unauthorized` if token is missing/invalid
-- `403 Forbidden` if not the owner
-- `404 Not Found` if template does not exist
+- `200 OK` — `{ valid: boolean }` (GraphQL may expose additional fields per schema)
 
 ---
 
-## Delete Template (Ownership Protected, Soft Delete)
+## Password reset — confirm
 
-```/dev/null/http.txt#L1-2
-DELETE /templates/{templateId}
-Authorization: Bearer <access_token>
+`POST /auth/password-reset/confirm`
+
+```http
+POST /auth/password-reset/confirm
+Content-Type: application/json
+
+{
+  "token": "<token-from-email>",
+  "password": "new-secret-8-chars-min"
+}
 ```
+
+`password` must be at least **8** characters.
 
 **Responses**
 
-- `204 No Content`
-- `401 Unauthorized` if token is missing/invalid
-- `403 Forbidden` if not the owner
-- `404 Not Found` if template does not exist
+- `200 OK` — `{ message }` on success
+- `400 Bad Request` — invalid/expired token, expired link, or password too short
 
 ---
 
-## Template Fields
+# Auth — GraphQL (`POST /graphql`)
 
-- `targetBehavior` (string, min 3, max 100)
-- `setting` (string, max 200)
-- `mainCharacter` (string, max 500)
-- `emotionalTone` (enum: `CALM`, `ENCOURAGING`, `PLAYFUL`, `EMPATHETIC`, `NEUTRAL`)
-- `promptSuggestion` (string, max 500)
+Same business logic as REST; use `Authorization: Bearer <access_token>` for protected operations.
+
+| Operation | Kind | Arguments / inputs |
+|-----------|------|-------------------|
+| `register` | Mutation | `registerInput`: email, password, role, optional names, optional `therapistEmail` for `CHILD` |
+| `login` | Mutation | `loginInput`: email, password |
+| `profile` | Query | — (JWT) |
+| `verifyToken` | Query | — (JWT) |
+| `setOAuthRole` | Mutation | `setRoleInput`: `role` (`GUARDIAN` \| `CHILD`) (JWT); same errors as REST |
+| `requestPasswordReset` | Mutation | `requestInput`: `email` |
+| `validateResetToken` | Mutation | `validateInput`: `token` |
+| `resetPassword` | Mutation | `resetInput`: `token`, `password` |
+
+Response types include `AuthResponse` (`access_token`, `user`), `VerifyResponse`, `PasswordResetResponse`, `ValidateResetTokenResponse`, and `User` where applicable. See `src/auth/dto/auth.type.ts` and `src/auth/auth.resolver.ts`.
 
 ---
 
-# Admin Endpoints (Admin Only)
+## Story templates (therapist, GraphQL)
 
-All admin endpoints require:
+Therapists manage story templates only via GraphQL. See **`docs/template/endpoints.md`** for `templates`, `template`, `createTemplate`, `updateTemplate`, `removeTemplate`, `visualStyle`, and ownership rules.
+
+---
+
+# Admin — REST (`/admin`)
+
+All routes require:
 
 - `Authorization: Bearer <access_token>`
-- Role: `ADMIN`
+- Role: **`ADMIN`**
 
-## Create Therapist
+## Create therapist
 
-```/dev/null/http.txt#L1-10
+`POST /admin/therapists`
+
+```http
 POST /admin/therapists
 Authorization: Bearer <access_token>
 Content-Type: application/json
@@ -307,88 +303,68 @@ Content-Type: application/json
 
 **Responses**
 
-- `201 Created` with therapist summary
-- `401 Unauthorized` if token is missing/invalid
-- `403 Forbidden` if role is not `ADMIN`
-- `409 Conflict` if email or license number already exists
+- `201 Created` — therapist summary
+- `401 Unauthorized` / `403 Forbidden` — auth/role
+- `409 Conflict` — email or license already in use
 
 ---
 
-## List Therapists
+## List therapists
 
-```/dev/null/http.txt#L1-2
-GET /admin/therapists
-Authorization: Bearer <access_token>
-```
+`GET /admin/therapists`
 
 **Responses**
 
-- `200 OK` array of therapist summaries (includes `activeChildCount`)
-- `401 Unauthorized` if token is missing/invalid
-- `403 Forbidden` if role is not `ADMIN`
+- `200 OK` — array of therapist summaries (includes `activeChildCount` where implemented)
+- `401` / `403` — as above
 
 ---
 
-## Deprovision Therapist
+## Deprovision therapist
 
-Soft deletes the therapist user by setting `deletedAt`.
+`DELETE /admin/therapists/{therapistUserId}`
 
-```/dev/null/http.txt#L1-2
-DELETE /admin/therapists/{therapistUserId}
-Authorization: Bearer <access_token>
-```
+Soft-deletes the therapist user (`deletedAt`).
 
 **Responses**
 
 - `204 No Content`
-- `401 Unauthorized` if token is missing/invalid
-- `403 Forbidden` if role is not `ADMIN`
-- `404 Not Found` if therapist does not exist
+- `404 Not Found` — user not found
+- `401` / `403` — as above
 
 ---
 
-## Reprovision Therapist
+## Reprovision therapist
 
-Reactivates a soft-deleted therapist by clearing `deletedAt`.
+`POST /admin/therapists/{therapistUserId}/reprovision`
 
-```/dev/null/http.txt#L1-2
-POST /admin/therapists/{therapistUserId}/reprovision
-Authorization: Bearer <access_token>
-```
+Clears `deletedAt` for a soft-deleted therapist.
 
 **Responses**
 
-- `200 OK` with `{ userId, deletedAt: null }`
-- `401 Unauthorized` if token is missing/invalid
-- `403 Forbidden` if role is not `ADMIN`
-- `404 Not Found` if therapist does not exist
+- `200 OK` — e.g. `{ userId, deletedAt: null }`
+- `404 Not Found` — therapist missing
+- `401` / `403` — as above
 
 ---
 
-## System Stats
+## System stats
 
-```/dev/null/http.txt#L1-2
-GET /admin/stats
-Authorization: Bearer <access_token>
-```
+`GET /admin/stats`
 
 **Responses**
 
-- `200 OK` with system KPI summary
-- `401 Unauthorized` if token is missing/invalid
-- `403 Forbidden` if role is not `ADMIN`
+- `200 OK` — KPI summary
+- `401` / `403` — as above
 
 ---
 
-## Common Errors
+## Common errors (summary)
 
-- `401 Unauthorized`:
-  - Invalid credentials
-  - OAuth-only account attempting password login
-  - Invalid or missing JWT
-  - Attempt to set `THERAPIST` role via auth endpoints
-- `403 Forbidden`:
-  - Non-therapist attempting template routes
-  - Ownership violations (IDOR protection)
-- `409 Conflict`:
-  - Email already registered
+| Code | Typical cases |
+|------|----------------|
+| `400` | Validation errors; invalid/expired password-reset token; child registration without valid therapist |
+| `401` | Bad login; OAuth-only user on password login; deactivated user; missing/invalid JWT; registering as `THERAPIST`/`ADMIN`; OAuth role set to `THERAPIST`/`ADMIN` |
+| `403` | Admin-only routes when role is not `ADMIN` |
+| `404` | Child registration when therapist email not found |
+| `409` | Email already registered on sign-up; duplicate therapist email/license on admin create; OAuth role already set |

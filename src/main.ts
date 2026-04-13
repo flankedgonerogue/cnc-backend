@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import type { Server } from 'node:http';
 import { join } from 'node:path';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -32,6 +33,14 @@ async function bootstrap() {
   // Enable global exception filter
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  await app.listen(process.env.PORT ?? 3000);
+  const port = Number(process.env.PORT ?? 3000);
+  await app.listen(port);
+
+  const server = app.getHttpServer() as Server;
+  // Story mutations (LLM + CSE + image + TTS) can run for minutes. Node’s HTTP
+  // server may apply a finite request timeout; disable it so the socket is not
+  // torn down while the handler is still working. Your dev proxy (Vite, etc.)
+  // may still need its own `timeout` / `proxyTimeout`.
+  server.requestTimeout = 0;
 }
 void bootstrap();

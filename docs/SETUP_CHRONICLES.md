@@ -6,7 +6,6 @@
 
 The following packages have been installed:
 - `@google/generative-ai` - Gemini AI SDK for story generation
-- `axios` - HTTP client for Nano Banana API
 
 ### 2. Configure Environment Variables
 
@@ -15,8 +14,6 @@ Add these to your `.env` file:
 ```env
 # Chronicles N Conversations Engine - AI Configuration
 GEMINI_API_KEY=your-gemini-api-key-here
-NANO_BANANA_API_KEY=your-nano-banana-api-key-here
-NANO_BANANA_BASE_URL=https://api.nanobanana.ai
 ```
 
 #### Getting API Keys
@@ -25,12 +22,6 @@ NANO_BANANA_BASE_URL=https://api.nanobanana.ai
 1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
 2. Click "Create API Key"
 3. Copy the key to your `.env`
-
-**Nano Banana API Key:**
-1. Sign up at [Nano Banana](https://nanobanana.ai)
-2. Navigate to API settings
-3. Generate an API key
-4. Copy the key to your `.env`
 
 ### 3. Update Database Schema
 
@@ -117,9 +108,9 @@ The story will continue based on the choice!
 ### New Files Created
 
 **Services:**
-- `src/story-generation/story-generation.service.ts` - Gemini AI integration
-- `src/image-generation/image-generation.service.ts` - Nano Banana API integration
-- `src/prompts/prompts.service.ts` - System prompt management
+- `src/story/story.service.ts` - Story loop, nodes, interactions, analytics
+- `src/story/gemini/gemini.service.ts` - Gemini (text, image, TTS) integration
+- `src/story/prompt/prompt.service.ts` - System prompt loading for story flows
 
 **System Prompts:**
 - `src/prompts/system-prompt-init.xml` - Initialization prompt (Node 0)
@@ -151,7 +142,7 @@ The story will continue based on the choice!
 ### Updated Files
 
 - `src/app.module.ts` - Added SessionsModule
-- `.env.example` - Added Gemini and Nano Banana API keys
+- `.env.example` - Gemini and storage-related keys
 - `README.md` - Added Chronicles N Conversations overview
 - `prisma/schema.prisma` - Made templateId optional
 
@@ -162,19 +153,14 @@ The story will continue based on the choice!
 ```
 Frontend Client
       ↓
-REST API Endpoints (/sessions/initialize, /sessions/choice)
+REST / GraphQL (sessions, story)
       ↓
-SessionsService (Game Loop)
+SessionsService — session assignment & listing
+StoryService — start/continue story, choices, nodes, CSE, analytics
       ↓
-   ┌──┴──────────────────────────┐
-   ↓                              ↓
-StoryGenerationService     ImageGenerationService
-(Gemini AI)                (Nano Banana)
-   ↓                              ↓
-System Prompts             Text-to-Image (Node 0)
-(XML files)                Image-to-Image (Node 1+)
-   ↓                              ↓
-   └──┬──────────────────────────┘
+GeminiService — LLM narrative, image, and TTS via Google Generative AI
+PromptService — system prompts for init/continuation
+StorageService — persist generated assets (local or S3)
       ↓
 Database (Prisma)
 - Session
@@ -194,11 +180,9 @@ Database (Prisma)
 - Context management (sliding window strategy)
 - Few-shot examples for consistency
 
-### ✅ Image Generation (Nano Banana)
-- Text-to-Image for Node 0 (initial scene)
-- Image-to-Image editing for Node 1+ (character consistency)
-- Strength parameter tuning (0.65 balance)
-- Fallback mechanisms on failure
+### ✅ Media (Gemini + storage)
+- Images and optional audio generated via `GeminiService`, uploaded via `StorageService`
+- Continuation can use prior frame for consistency when available
 
 ### ✅ Game Loop
 - Session state caching (visual style, character anchor)
@@ -226,7 +210,7 @@ Database (Prisma)
 - Re-initialize the session
 
 ### "Image generation failed"
-- Check NANO_BANANA_API_KEY
+- Check `GEMINI_API_KEY` and Gemini image model configuration
 - Verify API quota/limits
 - System continues without image (text-only mode)
 
@@ -254,7 +238,7 @@ Database (Prisma)
    - Send choices via `/sessions/choice`
 
 4. **Monitor Performance**
-   - Check API usage (Gemini/Nano Banana)
+   - Check API usage (Gemini)
    - Review session completion rates
    - Analyze choice patterns in database
 

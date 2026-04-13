@@ -36,6 +36,9 @@ export class TemplatesService {
         mainCharacter: sanitized.mainCharacter,
         emotionalTone: sanitized.emotionalTone,
         promptSuggestion: sanitized.promptSuggestion,
+        ...(sanitized.visualStyle !== undefined
+          ? { visualStyle: sanitized.visualStyle }
+          : {}),
       },
     });
   }
@@ -120,6 +123,9 @@ export class TemplatesService {
     if (sanitized.promptSuggestion !== undefined) {
       data.promptSuggestion = sanitized.promptSuggestion;
     }
+    if (sanitized.visualStyle !== undefined) {
+      data.visualStyle = sanitized.visualStyle;
+    }
 
     const updated = await this.prisma.storyTemplate.updateMany({
       where,
@@ -165,7 +171,19 @@ export class TemplatesService {
       setting: this.sanitizeText(dto.setting),
       mainCharacter: this.sanitizeText(dto.mainCharacter),
       promptSuggestion: this.sanitizeText(dto.promptSuggestion),
+      visualStyle: this.sanitizeOptionalTemplateText(dto.visualStyle),
     };
+  }
+
+  /** Optional field: omit when undefined or blank so Prisma defaults apply on create. */
+  private sanitizeOptionalTemplateText(
+    value: string | undefined,
+  ): string | undefined {
+    const sanitized = this.sanitizeText(value);
+    if (sanitized === undefined || sanitized === '') {
+      return undefined;
+    }
+    return sanitized;
   }
 
   private sanitizeText(value: string | undefined): string | undefined {

@@ -11,6 +11,7 @@ import { ProfilesModule } from './profiles/profiles.module';
 import { AdminModule } from './admin/admin.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { StoryModule } from './story/story.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { StoryModule } from './story/story.module';
     AdminModule,
     SessionsModule,
     StoryModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -135,9 +135,7 @@ export class AuthController {
   async requestPasswordReset(
     @Body() requestPasswordResetDto: RequestPasswordResetDto,
   ) {
-    return this.authService.requestPasswordReset(
-      requestPasswordResetDto.email,
-    );
+    return this.authService.requestPasswordReset(requestPasswordResetDto.email);
   }
 
   /**
@@ -161,7 +159,7 @@ export class AuthController {
   async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
     return this.authService.resetPassword(
       resetPasswordDto.token,
-      resetPasswordDto.newPassword,
+      resetPasswordDto.password,
     );
   }
 }

@@ -8,20 +8,28 @@ This directory contains the current, actively maintained guides for the backend 
   Get the API running locally, configure environment variables, and smoke‑test the auth flows.
 
 - **Auth + Admin API Guide** (`auth/endpoints.md`)
-  Endpoint reference, request/response examples, auth flows, admin management routes, and security notes.
+  Authentication (REST and GraphQL): register, login, OAuth, password reset, JWT verification; admin therapist provisioning and stats.
+
+- **Template API Guide** (`template/endpoints.md`)
+  GraphQL reference for therapist story templates, including `visualStyle` and ownership rules.
 
 - **Story API Guide** (`story/endpoints.md`)
-  Story generation endpoints, request/response examples, and access rules.
+  Start / continue / restart story and session analytics (GraphQL), roles, and examples.
 
 - **Session API Guide** (`session/endpoints.md`)
   Session and child profile endpoints, request/response examples, and access rules.
+
+- **Therapist analytics (GraphQL)** (`analytics/endpoints.md`)
+  Cross-session dashboard query: trends per child, template effectiveness, week/month windows.
 
 ## Suggested Reading Order
 
 1. `QUICK_START.md`
 2. `auth/endpoints.md`
-3. `story/endpoints.md`
-4. `session/endpoints.md`
+3. `template/endpoints.md` (if you use therapist templates)
+4. `story/endpoints.md`
+5. `session/endpoints.md`
+6. `analytics/endpoints.md` (therapist dashboards)
 
 ## Notes
 

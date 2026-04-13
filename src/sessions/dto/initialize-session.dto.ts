@@ -1,4 +1,11 @@
-import { IsString, IsInt, Min, Max, MaxLength, MinLength } from 'class-validator';
+import {
+  IsString,
+  IsInt,
+  Min,
+  Max,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class InitializeSessionDto {
   @IsString()

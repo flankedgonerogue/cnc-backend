@@ -103,10 +103,13 @@ export class S3StorageService implements StorageService {
 
       this.logger.log(`Deleted S3 object: ${key}`);
     } catch (error) {
-      if (error.Code === 'AccessDenied' || error.$metadata?.httpStatusCode === 403) {
+      if (
+        error.Code === 'AccessDenied' ||
+        error.$metadata?.httpStatusCode === 403
+      ) {
         this.logger.warn(
           `S3 Access Denied on delete. IAM user needs s3:DeleteObject permission. ` +
-          `URL: ${fileUrl}`,
+            `URL: ${fileUrl}`,
         );
       } else {
         this.logger.warn(
@@ -129,7 +132,7 @@ export class S3StorageService implements StorageService {
   /**
    * Read an object from S3 and return as buffer.
    * Extracts the key from URL or uses key directly.
-   * 
+   *
    * Requires s3:GetObject permission in IAM policy.
    */
   async readObjectAsBuffer(imageUrl: string): Promise<Buffer> {
@@ -159,13 +162,21 @@ export class S3StorageService implements StorageService {
         this.logger.error(
           'AWS credentials not configured or invalid. Check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.',
         );
-      } else if (error.Code === 'AccessDenied' || error.$metadata?.httpStatusCode === 403) {
+      } else if (
+        error.Code === 'AccessDenied' ||
+        error.$metadata?.httpStatusCode === 403
+      ) {
         this.logger.error(
           `S3 Access Denied. IAM user needs s3:GetObject permission for bucket: ${this.bucketName}. ` +
-          `URL: ${imageUrl}`,
+            `URL: ${imageUrl}`,
         );
-      } else if (error.Code === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
-        this.logger.warn(`S3 object not found: ${this.extractKeyFromUrl(imageUrl)}`);
+      } else if (
+        error.Code === 'NoSuchKey' ||
+        error.$metadata?.httpStatusCode === 404
+      ) {
+        this.logger.warn(
+          `S3 object not found: ${this.extractKeyFromUrl(imageUrl)}`,
+        );
       }
       this.logger.error(`Failed to read object from S3: ${error.message}`);
       throw new BadRequestException(
@@ -207,10 +218,13 @@ export class S3StorageService implements StorageService {
         this.logger.error(
           'AWS credentials not configured or invalid. Check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.',
         );
-      } else if (error.Code === 'AccessDenied' || error.$metadata?.httpStatusCode === 403) {
+      } else if (
+        error.Code === 'AccessDenied' ||
+        error.$metadata?.httpStatusCode === 403
+      ) {
         this.logger.error(
           `S3 Access Denied. IAM user needs s3:PutObject permission for bucket: ${this.bucketName}. ` +
-          `Key: ${key}`,
+            `Key: ${key}`,
         );
       }
       this.logger.error(`Failed to upload to S3: ${error.message}`);

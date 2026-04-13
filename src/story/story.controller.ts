@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { Role } from '../generated/prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -22,7 +31,10 @@ export class StoryController {
 
   @Post('continue')
   @HttpCode(HttpStatus.OK)
-  async continueStory(@User('id') userId: string, @Body() dto: ContinueStoryDto) {
+  async continueStory(
+    @User('id') userId: string,
+    @Body() dto: ContinueStoryDto,
+  ) {
     return this.storyService.continueStory(userId, dto);
   }
 

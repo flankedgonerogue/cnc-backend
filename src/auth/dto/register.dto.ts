@@ -5,6 +5,7 @@ import {
   MinLength,
   IsNotEmpty,
   IsIn,
+  ValidateIf,
 } from 'class-validator';
 import { Role } from '../../generated/prisma/client';
 
@@ -34,4 +35,10 @@ export class RegisterDto {
   @Field({ nullable: true })
   @IsString()
   lastName?: string;
+
+  @Field({ nullable: true })
+  @ValidateIf((obj) => obj.role === Role.CHILD)
+  @IsEmail()
+  @IsNotEmpty({ message: 'therapistEmail is required for CHILD role' })
+  therapistEmail?: string;
 }

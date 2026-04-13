@@ -1,140 +1,168 @@
-# API Endpoints — Story
+# Story API — Interactive narrative (GraphQL)
 
-This document describes the story generation endpoints for the CNC Backend.
+Generates and continues AI-driven story nodes for an assigned **session** (child + template). Uses Gemini for text, optional image/audio via storage, and updates **behavioral analytics** as choices are recorded.
 
 ## Base URL
 
 - Local: `http://localhost:3000`
+- Endpoint: `POST /graphql`
 
-## Authentication & Access
+---
 
-All story endpoints require:
+## Authentication
 
 - `Authorization: Bearer <access_token>`
-- Roles: `THERAPIST` or `CHILD`
 
-Access rules:
+### Roles
 
-- A **child** can access their own sessions.
-- A **therapist** can access sessions for children assigned to them.
-- Requests are rejected when a session is not `ACTIVE`.
+| Operation | `THERAPIST` | `CHILD` | `GUARDIAN` |
+|-----------|-------------|---------|------------|
+| `startStory` / `restartStory` / `continueStory` | ✅ | ✅ | ❌ |
+| `getSessionBehavioralAnalytics` | ✅ | ✅ | ✅ |
+
+Access to a **session** is enforced in `StoryService` (child may only use their own sessions; therapist only sessions for their assigned children). Requests can fail if the session is missing, not **`ACTIVE`**, or the user is not allowed.
 
 ---
 
-# Story Endpoints
+## Mutations
 
-## Start Story (Protected)
+### `startStory(sessionId: String!): StoryNodeResponse!`
 
-Generate the opening story node for a session.
+Starts the story for the session: creates the first **story node** (if none exist) or returns the latest node if the session was already started.
 
-```/dev/null/http.txt#L1-9
-POST /story/start
-Authorization: Bearer <access_token>
-Content-Type: application/json
+- **Args:** `sessionId` — non-empty string.
 
-{
-  "sessionId": "sess_123",
-  "childName": "Avery",
-  "childAge": 7
+### `restartStory(sessionId: String!): StoryNodeResponse!`
+
+Re-runs the start flow for an existing session (same validation as `startStory`).
+
+### `continueStory(sessionId: String!, choiceId: String!, timeTakenMs: Int!): ContinueStoryResponse!`
+
+Applies a choice, logs an **interaction**, updates **behavioral analytics**, and returns the next node (or ending node).
+
+- **Args:**
+  - `sessionId`
+  - `choiceId` — must belong to the **current** node’s choices
+  - `timeTakenMs` — non-negative integer (milliseconds to decide)
+
+---
+
+## Query
+
+### `getSessionBehavioralAnalytics(sessionId: String!): SessionBehavioralAnalyticsResponse!`
+
+Returns persisted **`BehavioralAnalytics`**, ordered **interactions** (with choice/node snippets), and a small **summary** (engagement, flags, etc.). Use only for sessions the caller is allowed to access.
+
+---
+
+## Response types (conceptual)
+
+**`StoryNodeResponse`**
+
+- `sessionId`
+- `node` (`StoryNodeEntity`): `id`, `textContent`, `imageUrl`, `audioUrl`, `confidenceScore`, `isApproved`, `choices[]` (`id`, `text`, `behavioralTag`)
+
+**`ContinueStoryResponse`**
+
+- `sessionId`
+- `isEnding` — when `true`, the narrative may be finished; `node.choices` may be empty
+- `node` — same shape as above
+
+**`SessionBehavioralAnalyticsResponse`**
+
+- `analytics` — full behavioral analytics row (counts, engagement, flags, notes, etc.)
+- `interactions[]` — per-choice log with timing and optional node/choice detail
+- `summary` — `sessionId`, `totalInteractions`, `sessionDuration`, `overallEngagement`, `therapistNotesForReview`, `flaggedForTherapistReview`
+
+Types are defined in `src/story/entities/story.entity.ts`.
+
+---
+
+## Examples
+
+**Start**
+
+```graphql
+mutation Start($sessionId: String!) {
+  startStory(sessionId: $sessionId) {
+    sessionId
+    node {
+      id
+      textContent
+      confidenceScore
+      choices {
+        id
+        text
+        behavioralTag
+      }
+    }
+  }
 }
 ```
 
-**Request Body**
+**Continue**
 
-- `sessionId` (string, required, min length 1)
-- `childName` (string, required, min length 1, max length 50)
-- `childAge` (integer, required, min 3, max 18)
+```graphql
+mutation Continue($sessionId: String!, $choiceId: String!, $timeTakenMs: Int!) {
+  continueStory(
+    sessionId: $sessionId
+    choiceId: $choiceId
+    timeTakenMs: $timeTakenMs
+  ) {
+    sessionId
+    isEnding
+    node {
+      id
+      textContent
+      choices {
+        id
+        text
+      }
+    }
+  }
+}
+```
 
-**Responses**
+**Analytics**
 
-- `201 Created` with the initial story node, including choices
-- `400 Bad Request`
-  - Session is not active
-  - Session has already been started
-- `401 Unauthorized` if token is missing/invalid
-- `403 Forbidden` if the user does not have access to the session
-- `404 Not Found` if the session does not exist
-
-**Response Shape (Example)**
-
-```/dev/null/http.txt#L1-16
-{
-  "sessionId": "sess_123",
-  "node": {
-    "id": "node_1",
-    "textContent": "Once upon a time...",
-    "imageUrl": "https://cdn.example.com/story-images/...",
-    "audioUrl": "https://cdn.example.com/story-audio/...",
-    "confidenceScore": 0.98,
-    "choices": [
-      { "id": "choice_1", "text": "Say hello", "behavioralTag": "GREETING" },
-      { "id": "choice_2", "text": "Look around", "behavioralTag": "CURIOSITY" }
-    ]
+```graphql
+query Analytics($sessionId: String!) {
+  getSessionBehavioralAnalytics(sessionId: $sessionId) {
+    analytics {
+      engagementScore
+      totalChoices
+      positiveChoices
+      negativeChoices
+      flaggedForReview
+      notesForTherapist
+    }
+    summary {
+      totalInteractions
+      overallEngagement
+      flaggedForTherapistReview
+    }
   }
 }
 ```
 
 ---
 
-## Continue Story (Protected)
+## Errors
 
-Advance the story by submitting a choice for the current node.
-
-```/dev/null/http.txt#L1-9
-POST /story/continue
-Authorization: Bearer <access_token>
-Content-Type: application/json
-
-{
-  "sessionId": "sess_123",
-  "choiceId": "choice_1",
-  "timeTakenMs": 1400
-}
-```
-
-**Request Body**
-
-- `sessionId` (string, required, min length 1)
-- `choiceId` (string, required, min length 1)
-- `timeTakenMs` (integer, required, min 0)
-
-**Responses**
-
-- `200 OK` with the next story node
-- `400 Bad Request`
-  - Session is not active
-  - Session is currently processing another request
-  - Choice does not belong to the current story node
-- `401 Unauthorized` if token is missing/invalid
-- `403 Forbidden` if the user does not have access to the session
-- `404 Not Found` if the choice does not exist
-
-**Response Shape (Example)**
-
-```/dev/null/http.txt#L1-17
-{
-  "sessionId": "sess_123",
-  "isEnding": false,
-  "node": {
-    "id": "node_2",
-    "textContent": "Avery smiles and waves back.",
-    "imageUrl": "https://cdn.example.com/story-images/...",
-    "audioUrl": "https://cdn.example.com/story-audio/...",
-    "confidenceScore": 0.95,
-    "choices": [
-      { "id": "choice_3", "text": "Ask to play", "behavioralTag": "INITIATION" },
-      { "id": "choice_4", "text": "Wait quietly", "behavioralTag": "SELF_REGULATION" }
-    ]
-  }
-}
-```
-
-If `isEnding` is `true`, the story has concluded and `choices` will be empty or omitted.
+GraphQL typically returns HTTP `200` with an `errors` array for resolver failures (validation, `401`-style auth, `404` not found, etc.), or `400` depending on driver configuration. Inspect `errors[].message` and `extensions` in your client.
 
 ---
 
-## Notes
+## Behavior notes
 
-- These endpoints generate story nodes using LLM + safety gating.
-- Image and audio generation run asynchronously during story generation and may return `null` if unavailable.
-- Continuing a story records an interaction event with `timeTakenMs`.
+- **Child name / age** for prompts come from the **session**, **template**, and **child profile** in the service layer—not from the start mutation args (only `sessionId` is passed).
+- Story generation uses **Gemini**, prompts under `src/story/prompt/`, and optional **media** via configured storage.
+- **`timeTakenMs`** is stored on each interaction for analytics.
+- If the session already has nodes, **`startStory`** returns the latest node instead of duplicating generation (see `StoryService.startStory`).
+
+---
+
+## Related docs
+
+- Sessions (assigning a session): `docs/session/endpoints.md`
+- Therapist cross-session analytics: `docs/analytics/endpoints.md`

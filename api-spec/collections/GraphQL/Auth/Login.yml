@@ -23,7 +23,7 @@ graphql:
       }
     variables: |-
       {
-        "email": "{{THERAPIST_EMAIL}}",
+        "email": "flankedgonerogue@gmail.com",
         "password": "{{DEFAULT_PASSWORD}}"
       }
   auth: inherit

@@ -1,0 +1,54 @@
+info:
+  name: Register (for child)
+  type: graphql
+  seq: 6
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      mutation Register(
+        $email: String!
+        $password: String!
+        $role: String!
+        $firstName: String
+        $lastName: String
+        $therapistEmail: String
+      ) {
+        register(
+          registerInput: {
+            email: $email
+            password: $password
+            role: $role
+            firstName: $firstName
+            lastName: $lastName
+            therapistEmail: $therapistEmail
+          }
+        ) {
+          access_token
+          user {
+            id
+            email
+            role
+            firstName
+            lastName
+          }
+        }
+      }
+    variables: |
+      {
+        "email": "{{$randomEmail}}",
+        "password": "{{$randomPassword}}",
+        "role": "GUARDIAN",
+        "firstName": "John",
+        "lastName": "Doe",
+        "therapistEmail": "therapist@example.com"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

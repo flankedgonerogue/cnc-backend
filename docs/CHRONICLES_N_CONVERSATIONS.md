@@ -8,29 +8,18 @@ The **Chronicles N Conversations** engine is an AI-powered therapeutic storytell
 
 ### Core Components
 
-1. **Story Generation Service** (`src/story-generation/`)
-   - Integrates with Google Gemini AI (gemini-1.5-flash)
-   - Generates story content with strict JSON output
-   - Implements safety filters (harassment, hate speech, dangerous content)
-   - Uses system prompts for initialization and continuation
+1. **Story module** (`src/story/`)
+   - **`StoryService`** — start/continue story flow, nodes, choices, interactions, behavioral analytics updates, in-memory session state
+   - **`GeminiService`** — Google Generative AI for narrative JSON, image generation, and optional TTS; results persisted via storage
+   - **`PromptService`** (`src/story/prompt/`) — loads system prompts for initialization and continuation
 
-2. **Image Generation Service** (`src/image-generation/`)
-   - Integrates with Nano Banana API
-   - Text-to-Image for initial node (Node 0)
-   - Image-to-Image editing for consistency (Node 1+)
-   - Maintains character consistency across story progression
+2. **Prompts assets** (`src/prompts/`, paths configurable)
+   - XML-based prompts used by the story pipeline where configured
+   - Dynamic user message construction in `StoryService` / `PromptService`
 
-3. **Prompts System** (`src/prompts/`)
-   - XML-based system prompts for LLM guidance
-   - `system-prompt-init.xml` - Story initialization
-   - `system-prompt-cont.xml` - Story continuation
-   - Dynamic user message construction
-
-4. **Sessions Module** (`src/sessions/`)
-   - Orchestrates the game loop
-   - Manages session state (visual style, character anchor)
-   - Handles choice processing and node generation
-   - Implements sliding window context management
+3. **Sessions module** (`src/sessions/`)
+   - Therapist assigns sessions (child + template); listing and access guards
+   - Story progression and node creation are handled by **`StoryService`**, not this module alone
 
 ---
 
@@ -41,11 +30,11 @@ The **Chronicles N Conversations** engine is an AI-powered therapeutic storytell
 When a session starts:
 
 ```
-Client Request → Sessions Controller → Sessions Service
+Client Request → Story endpoints → StoryService
                                             ↓
-                  Story Generation Service (Gemini AI)
+                  GeminiService (narrative + image + optional audio)
                                             ↓
-                  Image Generation Service (Nano Banana - Text-to-Image)
+                  StorageService (upload assets)
                                             ↓
                   Database (Session + StoryNode created)
                                             ↓
@@ -63,23 +52,19 @@ Client Request → Sessions Controller → Sessions Service
 When a child makes a choice:
 
 ```
-Client Choice → Sessions Controller → Sessions Service
+Client Choice → Story endpoints → StoryService
                                            ↓
                    Retrieve Session State (from cache)
                                            ↓
                    Log Interaction (database)
                                            ↓
-                   Story Generation Service (Gemini AI)
-                   - Uses character_anchor & visual_style
-                   - Increments turn_count
+                   GeminiService — continuation narrative + next image/audio
                                            ↓
-                   Image Generation Service (Nano Banana - Image-to-Image)
-                   - Uses previous image + new prompt
-                   - Strength: 0.65 (balance consistency/prompt)
+                   StorageService — upload new assets
                                            ↓
                    Create New StoryNode (database)
                                            ↓
-                   Check if ending (turn_count >= 5 + positive choice)
+                   Check ending / CSE approval rules
                                            ↓
                    Response with next story, image, choices
 ```
@@ -173,10 +158,6 @@ Add to your `.env` file:
 # Chronicles N Conversations Engine - AI Configuration
 # Gemini API for Story Generation
 GEMINI_API_KEY=your-gemini-api-key-here
-
-# Nano Banana API for Image Generation
-NANO_BANANA_API_KEY=your-nano-banana-api-key-here
-NANO_BANANA_BASE_URL=https://api.nanobanana.ai
 ```
 
 ### Getting API Keys
@@ -184,12 +165,6 @@ NANO_BANANA_BASE_URL=https://api.nanobanana.ai
 1. **Gemini API Key**
    - Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
    - Create a new API key
-   - Copy and paste into `.env`
-
-2. **Nano Banana API Key**
-   - Sign up at [Nano Banana](https://nanobanana.ai)
-   - Navigate to API settings
-   - Generate API key
    - Copy and paste into `.env`
 
 ---

@@ -68,25 +68,25 @@ The server runs at `http://localhost:3000`.
 
 ## Key Endpoints
 
-### Authentication
+### Authentication (REST)
 | Method | Endpoint | Description | Auth |
 | --- | --- | --- | --- |
-| POST | `/auth/register` | Register with email/password | ❌ |
+| POST | `/auth/register` | Register with email/password (`GUARDIAN` / `CHILD`) | ❌ |
 | POST | `/auth/login` | Login with email/password | ❌ |
 | GET | `/auth/profile` | Get current user | ✅ JWT |
 | GET | `/auth/verify` | Verify JWT token | ✅ JWT |
 | GET | `/auth/google` | Start Google OAuth flow | ❌ |
 | GET | `/auth/google/callback` | Google OAuth callback | ❌ |
-| POST | `/auth/oauth/role` | Initialize role for OAuth users | ✅ JWT |
+| POST | `/auth/oauth/role` | Initialize role for OAuth users (`GUARDIAN` / `CHILD`) | ✅ JWT |
+| POST | `/auth/password-reset/request` | Request password reset email | ❌ |
+| POST | `/auth/password-reset/validate` | Validate reset token | ❌ |
+| POST | `/auth/password-reset/confirm` | Set new password with token | ❌ |
 
-### Templates
-| Method | Endpoint | Description | Auth |
-| --- | --- | --- | --- |
-| POST | `/templates` | Create story template | ✅ THERAPIST |
-| GET | `/templates` | List templates | ✅ THERAPIST |
-| GET | `/templates/:id` | Get template | ✅ THERAPIST |
-| PATCH | `/templates/:id` | Update template | ✅ THERAPIST |
-| DELETE | `/templates/:id` | Delete template | ✅ THERAPIST |
+GraphQL equivalents (`register`, `login`, `profile`, `verifyToken`, `setOAuthRole`, password-reset mutations) are documented in `docs/auth/endpoints.md`.
+
+### Templates (GraphQL)
+
+Therapist story templates: `createTemplate`, `templates`, `template`, `updateTemplate`, `removeTemplate` on `POST /graphql`. See `docs/template/endpoints.md`.
 
 ### Sessions (Chronicles N Conversations)
 | Method | Endpoint | Description | Auth |
@@ -95,12 +95,21 @@ The server runs at `http://localhost:3000`.
 | POST | `/sessions/choice` | Make choice & continue story | ✅ GUARDIAN/CHILD |
 | GET | `/sessions/:id` | Get session details | ✅ JWT |
 
-### Story (AI Narrative Generation)
-| Method | Endpoint | Description | Auth |
-| --- | --- | --- | --- |
-| POST | `/story/start` | Initialize story with session | ✅ THERAPIST/CHILD |
-| POST | `/story/continue` | Continue story with choice | ✅ THERAPIST/CHILD |
-| GET | `/story/:sessionId/analytics` | Get behavioral analytics | ✅ THERAPIST/CHILD |
+### Story (GraphQL)
+
+| Entry | Description |
+| --- | --- |
+| `POST /graphql` — `startStory`, `restartStory`, `continueStory`, `getSessionBehavioralAnalytics` | Interactive narrative and per-session analytics |
+
+See `docs/story/endpoints.md`.
+
+### Therapist analytics (GraphQL)
+
+| Entry | Description |
+| --- | --- |
+| `POST /graphql` query `therapistDashboardAnalytics` | Cross-session dashboard (per-child trends, template stats, week/month windows) |
+
+See `docs/analytics/endpoints.md`.
 
 ## Scripts
 
@@ -119,6 +128,10 @@ npm run prisma:studio   # Open Prisma Studio
 
 Project docs live in `docs/`:
 - `docs/QUICK_START.md` — Getting started and testing
-- `docs/auth/endpoints.md` — Auth API reference
+- `docs/auth/endpoints.md` — Auth and admin HTTP API reference
+- `docs/template/endpoints.md` — Template management (GraphQL, `visualStyle`)
+- `docs/story/endpoints.md` — Story generation API
+- `docs/session/endpoints.md` — Sessions API
+- `docs/analytics/endpoints.md` — Therapist cross-session analytics (GraphQL)
 
 If you want the docs consolidated, tell me which ones to keep and I’ll slim them down.

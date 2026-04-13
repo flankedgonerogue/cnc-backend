@@ -52,7 +52,42 @@ describe('TemplatesService', () => {
         select: { id: true },
       });
       expect(prisma.storyTemplate.create).toHaveBeenCalled();
+      const createData = prisma.storyTemplate.create.mock.calls[0]?.[0]?.data as {
+        visualStyle?: string;
+      };
+      expect(createData?.visualStyle).toBeUndefined();
       expect(result.id).toBe('st-1');
+    });
+
+    it('persists visualStyle on create when provided', async () => {
+      prisma.therapistProfile.findUnique.mockResolvedValue({ id: 'tp-1' });
+      prisma.storyTemplate.create.mockResolvedValue({
+        id: 'st-vs',
+        therapistId: 'tp-1',
+        targetBehavior: 'Turn-taking',
+        setting: 'Playground',
+        mainCharacter: 'Two kids',
+        emotionalTone: StoryTone.CALM,
+        promptSuggestion: 'Keep it short',
+        visualStyle: 'watercolor',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+      });
+
+      await service.create('user-1', {
+        targetBehavior: 'Turn-taking',
+        setting: 'Playground',
+        mainCharacter: 'Two kids',
+        emotionalTone: StoryTone.CALM,
+        promptSuggestion: 'Keep it short',
+        visualStyle: 'watercolor',
+      });
+
+      const createData = prisma.storyTemplate.create.mock.calls[0]?.[0]?.data as {
+        visualStyle?: string;
+      };
+      expect(createData?.visualStyle).toBe('watercolor');
     });
 
     it('sanitizes seed data before create', async () => {
@@ -98,6 +133,37 @@ describe('TemplatesService', () => {
       expect(createCall.data.setting).toBe('safe');
       expect(createCall.data.mainCharacter).toBe('safe');
       expect(createCall.data.promptSuggestion).toBe('safe');
+      expect(createCall.data.visualStyle).toBeUndefined();
+    });
+
+    it('sanitizes optional visualStyle on create', async () => {
+      prisma.therapistProfile.findUnique.mockResolvedValue({ id: 'tp-1' });
+      prisma.storyTemplate.create.mockResolvedValue({
+        id: 'st-vs2',
+        therapistId: 'tp-1',
+        targetBehavior: 'safe',
+        setting: 'safe',
+        mainCharacter: 'safe',
+        emotionalTone: StoryTone.CALM,
+        promptSuggestion: 'safe',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+      });
+
+      await service.create('user-1', {
+        targetBehavior: 'safe',
+        setting: 'safe',
+        mainCharacter: 'safe',
+        emotionalTone: StoryTone.CALM,
+        promptSuggestion: 'safe',
+        visualStyle: '  bold lines  ',
+      });
+
+      const createCalls = prisma.storyTemplate.create.mock.calls as Array<
+        [{ data: { visualStyle?: string } }]
+      >;
+      expect(createCalls[0]?.[0].data.visualStyle).toBe('bold lines');
     });
 
     it('throws when therapist profile missing', async () => {
@@ -176,6 +242,20 @@ describe('TemplatesService', () => {
 
       expect(prisma.storyTemplate.updateMany).toHaveBeenCalled();
       expect(result.id).toBe('st-1');
+    });
+
+    it('updates visualStyle when provided', async () => {
+      prisma.storyTemplate.updateMany.mockResolvedValue({ count: 1 });
+      prisma.storyTemplate.findFirst.mockResolvedValue({ id: 'st-1' });
+
+      await service.update('user-1', 'st-1', {
+        visualStyle: 'comic book',
+      });
+
+      const updateCalls = prisma.storyTemplate.updateMany.mock.calls as Array<
+        [{ data: { visualStyle?: string } }]
+      >;
+      expect(updateCalls[0]?.[0].data.visualStyle).toBe('comic book');
     });
 
     it('throws when update affects no rows', async () => {

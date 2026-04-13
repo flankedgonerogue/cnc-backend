@@ -9,16 +9,22 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ValidateResetTokenDto } from './dto/validate-reset-token.dto';
 import {
   AuthResponse,
-  UserAuth,
   VerifyResponse,
   PasswordResetResponse,
   ValidateResetTokenResponse,
 } from './dto/auth.type';
+import { User } from '../users/user.entity';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Resolver()
 export class AuthResolver {
   constructor(private readonly authService: AuthService) {}
+
+  private mapUserToAuth(user: User): Omit<User, 'passwordHash'> {
+    const { passwordHash: _passwordHash, ...result } = user;
+    void _passwordHash;
+    return result;
+  }
 
   @Mutation(() => AuthResponse, { name: 'register' })
   async register(@Args('registerInput') registerDto: RegisterDto) {
@@ -34,34 +40,36 @@ export class AuthResolver {
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    return this.authService.login(user);
+    return this.authService.login(user as User);
   }
 
-  @Query(() => UserAuth, { name: 'profile' })
+  @Query(() => User, { name: 'profile' })
   @UseGuards(JwtAuthGuard)
-  async getProfile(@Context() context: any) {
+  async getProfile(@Context() context: Record<string, any>) {
     // Assuming JwtAuthGuard attaches the user to context.req.user
     // Note: You may need to adapt JwtAuthGuard to use GqlExecutionContext for GraphQL
-    const userId = context.req.user.id;
-    return this.authService.getProfile(userId);
+    const userId = context.req.user.id as string;
+    const user = await this.authService.getProfile(userId);
+    return this.mapUserToAuth(user);
   }
 
-  @Mutation(() => UserAuth, { name: 'setOAuthRole' })
+  @Mutation(() => User, { name: 'setOAuthRole' })
   @UseGuards(JwtAuthGuard)
   async setOAuthRole(
     @Args('setRoleInput') setRoleDto: SetRoleDto,
-    @Context() context: any,
+    @Context() context: Record<string, any>,
   ) {
-    const userId = context.req.user.id;
-    return this.authService.initializeRole(userId, setRoleDto.role);
+    const userId = context.req.user.id as string;
+    const user = await this.authService.initializeRole(userId, setRoleDto.role);
+    return this.mapUserToAuth(user);
   }
 
   @Query(() => VerifyResponse, { name: 'verifyToken' })
   @UseGuards(JwtAuthGuard)
-  async verifyToken(@Context() context: any) {
+  async verifyToken(@Context() context: Record<string, any>) {
     return {
       valid: true,
-      user: context.req.user,
+      user: this.mapUserToAuth(context.req.user as User),
     };
   }
 
@@ -69,9 +77,7 @@ export class AuthResolver {
   async requestPasswordReset(
     @Args('requestInput') requestPasswordResetDto: RequestPasswordResetDto,
   ) {
-    return this.authService.requestPasswordReset(
-      requestPasswordResetDto.email,
-    );
+    return this.authService.requestPasswordReset(requestPasswordResetDto.email);
   }
 
   @Mutation(() => ValidateResetTokenResponse, { name: 'validateResetToken' })
@@ -82,12 +88,10 @@ export class AuthResolver {
   }
 
   @Mutation(() => PasswordResetResponse, { name: 'resetPassword' })
-  async resetPassword(
-    @Args('resetInput') resetPasswordDto: ResetPasswordDto,
-  ) {
+  async resetPassword(@Args('resetInput') resetPasswordDto: ResetPasswordDto) {
     return this.authService.resetPassword(
       resetPasswordDto.token,
-      resetPasswordDto.newPassword,
+      resetPasswordDto.password,
     );
   }
 }

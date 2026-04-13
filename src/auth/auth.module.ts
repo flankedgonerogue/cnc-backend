@@ -8,6 +8,7 @@ import { AuthResolver } from './auth.resolver';
 import { AuthController } from './auth.controller';
 import { UsersModule } from '../users/users.module';
 import { EmailModule } from '../email/email.module';
+import { PrismaModule } from '../prisma/prisma.module';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
@@ -16,6 +17,7 @@ import { GoogleStrategy } from './strategies/google.strategy';
   imports: [
     UsersModule,
     EmailModule,
+    PrismaModule,
     PassportModule,
     ConfigModule,
     JwtModule.registerAsync({

@@ -1,5 +1,11 @@
 import { InputType, Field } from '@nestjs/graphql';
-import { IsEnum, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { StoryTone } from '../enums/story-tone.enum';
 
 @InputType()
@@ -30,6 +36,7 @@ export class CreateTemplateDto {
   promptSuggestion: string;
 
   @Field({ nullable: true })
+  @IsOptional()
   @IsString()
   @MaxLength(500)
   visualStyle?: string;

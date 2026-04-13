@@ -31,11 +31,53 @@ import type { StartStoryDto } from './dto/start-story.dto';
 import type { ContinueStoryDto } from './dto/continue-story.dto';
 
 const CSE_MAX_RETRIES = 3;
+/** After this many completed continuation turns, force an ending (matches prior behavior). */
+const STORY_HARD_TURN_LIMIT = 5;
+
+type StoryContinuePayload = {
+  sessionId: string;
+  isEnding: boolean;
+  node: {
+    id: string;
+    textContent: string;
+    imageUrl: string | null;
+    audioUrl: string | null;
+    confidenceScore: number;
+    isApproved: boolean;
+    choices: { id: string; text: string; behavioralTag: string | null }[];
+  };
+};
+
+interface PrefetchContinuationBundle {
+  llmResponse: ContinueLlmResponse;
+  cseResult: CseResponse | null;
+  useFallback: boolean;
+  forceEndingThisTurn: boolean;
+  hardLimitReached: boolean;
+  backToBackPositive: boolean;
+  finalIsEnding: boolean;
+  imageUrl: string | null;
+  audioUrl: string | null;
+  confidenceScore: number;
+  isApproved: boolean;
+}
 
 @Injectable()
 export class StoryService {
   private readonly sessionCache = new Map<string, SessionState>();
-  private readonly inFlightSessions = new Set<string>();
+  /** Concurrent continues: same session+choice share one promise; different choice waits then retries */
+  private readonly continuationLocks = new Map<
+    string,
+    { choiceId: string; promise: Promise<StoryContinuePayload> }
+  >();
+  /** Prefetch next node per (session, parent node, choice); max 2 concurrent generations */
+  private readonly prefetchByKey = new Map<
+    string,
+    Promise<PrefetchContinuationBundle | null>
+  >();
+  private prefetchActive = 0;
+  private readonly prefetchConcurrency = 2;
+  private prefetchWaitQueue: Array<() => void> = [];
   private readonly logger = new Logger(StoryService.name);
   private readonly cseApprovalThreshold: number;
 
@@ -57,9 +99,11 @@ export class StoryService {
   }
 
   async startStory(userId: string, dto: StartStoryDto) {
-    this.logger.debug(`[startStory] Initializing story for session: ${dto.sessionId}`);
+    this.logger.debug(
+      `[startStory] Initializing story for session: ${dto.sessionId}`,
+    );
     const sessionStartTime = Date.now();
-    
+
     const session = await this.prisma.session.findUnique({
       where: { id: dto.sessionId },
       include: { template: true, child: { include: { user: true } } },
@@ -120,7 +164,8 @@ export class StoryService {
     const child = session.child;
 
     // Extract child name from database
-    const childName = child.user.displayName || child.user.firstName || 'Friend';
+    const childName =
+      child.user.displayName || child.user.firstName || 'Friend';
 
     // Calculate child age from dateOfBirth or use default
     let childAge = 7;
@@ -222,7 +267,8 @@ export class StoryService {
       );
     }
 
-    const confidenceScore = cseResult?.confidence_score ?? (useFallback ? 0.5 : 1.0);
+    const confidenceScore =
+      cseResult?.confidence_score ?? (useFallback ? 0.5 : 1.0);
     const isApproved = cseResult?.safety_status === 'SAFE';
 
     this.logger.debug(
@@ -267,6 +313,14 @@ export class StoryService {
       `[startStory:${dto.sessionId}] Story initialization complete (${totalDuration}ms, nodeId: ${storyNode.id})`,
     );
 
+    if (storyNode.choices?.length) {
+      this.schedulePrefetchForChoices(
+        session.id,
+        storyNode.id,
+        storyNode.choices,
+      );
+    }
+
     return {
       sessionId: session.id,
       node: {
@@ -297,8 +351,12 @@ export class StoryService {
     await this.validateSessionAccess(userId, session.child);
 
     await this.prisma.$transaction([
-      this.prisma.interaction.deleteMany({ where: { sessionId: dto.sessionId } }),
-      this.prisma.choice.deleteMany({ where: { node: { sessionId: dto.sessionId } } }),
+      this.prisma.interaction.deleteMany({
+        where: { sessionId: dto.sessionId },
+      }),
+      this.prisma.choice.deleteMany({
+        where: { node: { sessionId: dto.sessionId } },
+      }),
       this.prisma.storyNode.deleteMany({ where: { sessionId: dto.sessionId } }),
       this.prisma.behavioralAnalytics.deleteMany({
         where: { sessionId: dto.sessionId },
@@ -314,35 +372,44 @@ export class StoryService {
     ]);
 
     this.sessionCache.delete(dto.sessionId);
-    this.inFlightSessions.delete(dto.sessionId);
+    this.clearPrefetchForSession(dto.sessionId);
 
     return this.startStory(userId, dto);
   }
 
   async continueStory(userId: string, dto: ContinueStoryDto) {
-    if (this.inFlightSessions.has(dto.sessionId)) {
-      throw new BadRequestException(
-        'This session is currently processing a request. Please wait.',
-      );
+    const lockKey = dto.sessionId;
+    const existing = this.continuationLocks.get(lockKey);
+    if (existing) {
+      if (existing.choiceId === dto.choiceId) {
+        return existing.promise;
+      }
+      await existing.promise;
     }
 
-    this.inFlightSessions.add(dto.sessionId);
-
+    const promise = this.processContinuation(userId, dto);
+    this.continuationLocks.set(lockKey, { choiceId: dto.choiceId, promise });
     try {
-      return await this.processContinuation(userId, dto);
+      return await promise;
     } finally {
-      this.inFlightSessions.delete(dto.sessionId);
+      if (this.continuationLocks.get(lockKey)?.promise === promise) {
+        this.continuationLocks.delete(lockKey);
+      }
     }
   }
 
   private async processContinuation(userId: string, dto: ContinueStoryDto) {
     const continuationStartTime = Date.now();
-    this.logger.debug(`[processContinuation:${dto.sessionId}] Starting story continuation`);
-    
+    this.logger.debug(
+      `[processContinuation:${dto.sessionId}] Starting story continuation`,
+    );
+
     let state = this.sessionCache.get(dto.sessionId);
 
     if (!state) {
-      this.logger.debug(`[processContinuation:${dto.sessionId}] Session not in cache, rehydrating from database`);
+      this.logger.debug(
+        `[processContinuation:${dto.sessionId}] Session not in cache, rehydrating from database`,
+      );
       state = await this.rehydrateSession(dto.sessionId);
     }
 
@@ -352,7 +419,9 @@ export class StoryService {
     });
 
     if (!session || session.status !== 'ACTIVE') {
-      this.logger.warn(`[processContinuation:${dto.sessionId}] Session is not active. Status: ${session?.status}`);
+      this.logger.warn(
+        `[processContinuation:${dto.sessionId}] Session is not active. Status: ${session?.status}`,
+      );
       throw new BadRequestException('Session is not active.');
     }
 
@@ -364,7 +433,9 @@ export class StoryService {
     });
 
     if (!choice) {
-      this.logger.warn(`[processContinuation:${dto.sessionId}] Choice not found: ${dto.choiceId}`);
+      this.logger.warn(
+        `[processContinuation:${dto.sessionId}] Choice not found: ${dto.choiceId}`,
+      );
       throw new NotFoundException('Choice not found.');
     }
 
@@ -413,181 +484,47 @@ export class StoryService {
 
     state.turnCount += 1;
 
-    // Check for back-to-back positive choices
-    const backToBackPositive =
-      state.lastChoiceBehaviorTag === 'Positive' &&
-      currentChoiceBehaviorTag === 'Positive';
-    const hardLimitReached = state.turnCount >= 5;
-    const forceEndingThisTurn = hardLimitReached || backToBackPositive;
-
-    this.logger.debug(
-      `[processContinuation:${dto.sessionId}] Processing choice: "${choice.text}" (turn ${state.turnCount}, behavior: ${currentChoiceBehaviorTag}, back-to-back positive: ${backToBackPositive})`,
+    this.invalidateSiblingPrefetches(
+      dto.sessionId,
+      latestNode.id,
+      dto.choiceId,
     );
 
-    const systemPrompt = this.promptService.buildContinuePrompt({
-      targetBehavior: state.targetBehavior,
-      previousNodeSummary: state.lastNodeText,
-      childChoice: choice.text,
-      turnCount: state.turnCount,
-      visualStyle: state.visualStyle,
-      characterAnchor: state.characterAnchor,
-      setting: state.storySetting,
-      mainCharacter: state.mainCharacter,
-    });
-
-    // --- CSE-gated generation loop ---
-    let llmResponse: ContinueLlmResponse;
-    let cseResult: CseResponse | null = null;
-    let useFallback = false;
-
-    this.logger.log(
-      `[processContinuation:${dto.sessionId}] Starting LLM generation for continuation node (turn: ${state.turnCount}, behavior: ${state.targetBehavior})`,
+    const prefetchKey = this.makePrefetchKey(
+      dto.sessionId,
+      latestNode.id,
+      dto.choiceId,
     );
 
-    try {
-      const llmStartTime = Date.now();
-      const result = await this.generateWithCseGate<ContinueLlmResponse>({
-        systemPrompt,
-        userMessage: forceEndingThisTurn
-          ? `The child chose: "${choice.text}". This node MUST end the story now with clear emotional closure, a completed resolution, and no new tasks, no new problems, and no "what next" setup. Set is_ending to true and make the text feel final.`
-          : `The child chose: "${choice.text}". Continue the same story world with the same main character, same setting, and same visual identity as prior nodes.`,
-        jsonSchema: CONTINUE_RESPONSE_SCHEMA,
-        targetBehavior: state.targetBehavior,
-        childAge: state.childAge,
-      });
-      const llmDuration = Date.now() - llmStartTime;
-      llmResponse = result.response;
-      cseResult = result.cseResult;
-      this.logger.log(
-        `[processContinuation:${dto.sessionId}] LLM generation complete (${llmDuration}ms, ${llmResponse.choices.length} choices)`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `[processContinuation:${dto.sessionId}] LLM continuation generation failed after CSE retries, using safe fallback: ${error.message}`,
-        error,
-      );
-      llmResponse = { ...FALLBACK_CONTINUE_RESPONSE };
-      useFallback = true;
+    let bundle: PrefetchContinuationBundle | null = null;
+    const pendingPrefetch = this.prefetchByKey.get(prefetchKey);
+    if (pendingPrefetch) {
+      this.prefetchByKey.delete(prefetchKey);
+      bundle = await pendingPrefetch;
     }
 
-    if (forceEndingThisTurn) {
-      this.logger.debug(
-        `[processContinuation:${dto.sessionId}] Applying forced-ending normalization (${hardLimitReached ? 'hard_limit' : 'positive_streak'})`,
-      );
-      llmResponse = this.normalizeForcedEndingResponse(
-        llmResponse,
-        state.targetBehavior,
-        hardLimitReached ? 'hard_limit' : 'positive_streak',
+    if (!bundle) {
+      bundle = await this.generateContinuationContent(
+        dto.sessionId,
+        state,
+        choice,
       );
     }
 
-    // --- Image + TTS generation in parallel (only if CSE approved) ---
-    let imageUrl: string | null = state.lastGeneratedImageUrl || null;
-    let audioUrl: string | null = null;
-
-    if (!useFallback) {
-      this.logger.debug(
-        `[processContinuation:${dto.sessionId}] Generating image and audio assets`,
-      );
-      const mediaStartTime = Date.now();
-      const imagePromise = (async () => {
-        let newImageBuffer: Buffer;
-        // Build enhanced image prompt with character consistency
-        const enhancedVisualPrompt = [
-          `Keep image in 16:9 aspect ratio.`,
-          `Main character must remain the same: ${state.mainCharacter}.`,
-          `Story setting must remain the same: ${state.storySetting}.`,
-          `Character MUST remain identical: ${state.characterAnchor}`,
-          `Visual Style: ${state.visualStyle}`,
-          `Continuity from previous node summary: ${state.lastNodeText}`,
-          `Scene: ${llmResponse.visual_context}`,
-          `Use lower detail level for faster generation.`,
-        ].join(' ');
-
-        if (state.lastGeneratedImageUrl) {
-          try {
-            this.logger.debug(
-              `[processContinuation:${dto.sessionId}] Fetching previous image for context (${state.lastGeneratedImageUrl})`,
-            );
-            // Read the previous image using the storage service
-            // This works for both local disk and S3 without needing HTTP access
-            const prevImageBuffer =
-              await this.storageService.readObjectAsBuffer(
-                state.lastGeneratedImageUrl,
-              );
-            const prevImageBase64 = prevImageBuffer.toString('base64');
-
-            this.logger.debug(
-              `[processContinuation:${dto.sessionId}] Generating new image based on previous (${prevImageBase64.length} bytes)`,
-            );
-            newImageBuffer = await this.geminiService.generateImageFromImage(
-              enhancedVisualPrompt,
-              prevImageBase64,
-              'image/png',
-            );
-          } catch (error) {
-            this.logger.warn(
-              `[processContinuation:${dto.sessionId}] Failed to fetch previous image from URL ${state.lastGeneratedImageUrl}, generating from text instead: ${error.message}`,
-            );
-            newImageBuffer = await this.geminiService.generateImageFromText(
-              enhancedVisualPrompt,
-            );
-          }
-        } else {
-          this.logger.debug(
-            `[processContinuation:${dto.sessionId}] Generating new image from text prompt`,
-          );
-          newImageBuffer = await this.geminiService.generateImageFromText(
-            enhancedVisualPrompt,
-          );
-        }
-
-        return this.storageService.uploadBuffer(
-          newImageBuffer,
-          'image/png',
-          'story-images',
-        );
-      })();
-
-      const [imageResult, audioResult] = await Promise.allSettled([
-        imagePromise,
-        this.generateAndStoreAudio(llmResponse.node_text),
-      ]);
-
-      if (imageResult.status === 'fulfilled') {
-        imageUrl = imageResult.value;
-        this.logger.debug(
-          `[processContinuation:${dto.sessionId}] Image generated successfully: ${imageUrl}`,
-        );
-      } else {
-        this.logger.warn(
-          `[processContinuation:${dto.sessionId}] Image generation failed for continuation node: ${imageResult.reason?.message}`,
-        );
-      }
-
-      if (audioResult.status === 'fulfilled') {
-        audioUrl = audioResult.value;
-        this.logger.debug(
-          `[processContinuation:${dto.sessionId}] Audio generated successfully: ${audioUrl}`,
-        );
-      } else {
-        this.logger.warn(
-          `[processContinuation:${dto.sessionId}] TTS generation failed for continuation node: ${audioResult.reason?.message}`,
-        );
-      }
-
-      const mediaDuration = Date.now() - mediaStartTime;
-      this.logger.log(
-        `[processContinuation:${dto.sessionId}] Media generation complete (${mediaDuration}ms)`,
-      );
-    }
+    const {
+      llmResponse,
+      cseResult,
+      useFallback,
+      hardLimitReached,
+      backToBackPositive,
+      finalIsEnding,
+      imageUrl,
+      audioUrl,
+      confidenceScore,
+      isApproved,
+    } = bundle;
 
     const isEnding = llmResponse.is_ending === true;
-    const confidenceScore = cseResult?.confidence_score ?? (useFallback ? 0.5 : 1.0);
-    const isApproved = cseResult?.safety_status === 'SAFE';
-
-    // Ending is true if the model ended naturally, or if we forced an ending.
-    const finalIsEnding = isEnding || hardLimitReached || backToBackPositive;
 
     if (hardLimitReached && !isEnding) {
       this.logger.log(
@@ -643,12 +580,12 @@ export class StoryService {
         where: { id: dto.sessionId },
         data: { status: 'COMPLETED', endedAt: new Date() },
       });
-      
+
       // Final analytics update with session completion flag
       const finalAnalytics = await this.prisma.behavioralAnalytics.findUnique({
         where: { sessionId: dto.sessionId },
       });
-      
+
       if (finalAnalytics) {
         await this.prisma.behavioralAnalytics.update({
           where: { sessionId: dto.sessionId },
@@ -657,7 +594,7 @@ export class StoryService {
           },
         });
       }
-      
+
       this.sessionCache.delete(dto.sessionId);
       const totalDuration = Date.now() - continuationStartTime;
       this.logger.log(
@@ -668,11 +605,19 @@ export class StoryService {
       state.lastGeneratedImageUrl = imageUrl ?? '';
       state.lastChoiceBehaviorTag = currentChoiceBehaviorTag;
       this.sessionCache.set(dto.sessionId, state);
-      
+
       const totalDuration = Date.now() - continuationStartTime;
       this.logger.log(
         `[processContinuation:${dto.sessionId}] Continuation complete (turn ${state.turnCount}). Total duration: ${totalDuration}ms`,
       );
+
+      if (storyNode.choices?.length) {
+        this.schedulePrefetchForChoices(
+          dto.sessionId,
+          storyNode.id,
+          storyNode.choices,
+        );
+      }
     }
 
     return {
@@ -734,7 +679,9 @@ export class StoryService {
         generatedJson: JSON.stringify(llmResponse, null, 2),
       });
 
-      this.logger.debug(`CSE evaluation attempt ${attempt}: evaluating content...`);
+      this.logger.debug(
+        `CSE evaluation attempt ${attempt}: evaluating content...`,
+      );
       const cseResult = await this.geminiService.evaluateWithCse(
         cseSystemPrompt,
         cseUserPrompt,
@@ -839,6 +786,310 @@ export class StoryService {
     };
   }
 
+  private makePrefetchKey(
+    sessionId: string,
+    parentNodeId: string,
+    choiceId: string,
+  ): string {
+    return `${sessionId}:${parentNodeId}:${choiceId}`;
+  }
+
+  private clearPrefetchForSession(sessionId: string): void {
+    const prefix = `${sessionId}:`;
+    for (const key of [...this.prefetchByKey.keys()]) {
+      if (key.startsWith(prefix)) {
+        this.prefetchByKey.delete(key);
+      }
+    }
+  }
+
+  private invalidateSiblingPrefetches(
+    sessionId: string,
+    parentNodeId: string,
+    chosenChoiceId: string,
+  ): void {
+    const chosenKey = this.makePrefetchKey(
+      sessionId,
+      parentNodeId,
+      chosenChoiceId,
+    );
+    for (const key of [...this.prefetchByKey.keys()]) {
+      if (key.startsWith(`${sessionId}:${parentNodeId}:`) && key !== chosenKey) {
+        this.prefetchByKey.delete(key);
+      }
+    }
+  }
+
+  private schedulePrefetchForChoices(
+    sessionId: string,
+    parentNodeId: string,
+    choices: { id: string; text: string; behavioralTag: string | null }[],
+  ): void {
+    const toPrefetch = choices.slice(0, 2);
+    for (const choice of toPrefetch) {
+      const key = this.makePrefetchKey(sessionId, parentNodeId, choice.id);
+      if (this.prefetchByKey.has(key)) {
+        continue;
+      }
+
+      const promise = (async (): Promise<PrefetchContinuationBundle | null> => {
+        await this.acquirePrefetchSlot();
+        try {
+          return await this.runPrefetchJob(sessionId, choice);
+        } finally {
+          this.releasePrefetchSlot();
+        }
+      })();
+
+      this.prefetchByKey.set(key, promise);
+    }
+  }
+
+  private async acquirePrefetchSlot(): Promise<void> {
+    if (this.prefetchActive < this.prefetchConcurrency) {
+      this.prefetchActive++;
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      this.prefetchWaitQueue.push(() => {
+        resolve();
+      });
+    });
+  }
+
+  private releasePrefetchSlot(): void {
+    const next = this.prefetchWaitQueue.shift();
+    if (next) {
+      next();
+    } else {
+      this.prefetchActive--;
+    }
+  }
+
+  private async runPrefetchJob(
+    sessionId: string,
+    choice: { id: string; text: string; behavioralTag: string | null },
+  ): Promise<PrefetchContinuationBundle | null> {
+    let state = this.sessionCache.get(sessionId);
+    if (!state) {
+      try {
+        state = await this.rehydrateSession(sessionId);
+      } catch {
+        return null;
+      }
+    }
+
+    try {
+      const virtualState: SessionState = {
+        ...state,
+        turnCount: state.turnCount + 1,
+      };
+      return await this.generateContinuationContent(
+        sessionId,
+        virtualState,
+        choice,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[prefetch:${sessionId}] Prefetch failed for choice ${choice.id}: ${error instanceof Error ? error.message : error}`,
+      );
+      return null;
+    }
+  }
+
+  private async generateContinuationContent(
+    sessionId: string,
+    state: SessionState,
+    choice: { text: string; behavioralTag: string | null },
+  ): Promise<PrefetchContinuationBundle> {
+    const currentChoiceBehaviorTag = choice.behavioralTag;
+    const backToBackPositive =
+      state.lastChoiceBehaviorTag === 'Positive' &&
+      currentChoiceBehaviorTag === 'Positive';
+    const hardLimitReached = state.turnCount >= STORY_HARD_TURN_LIMIT;
+    const forceEndingThisTurn = hardLimitReached || backToBackPositive;
+
+    this.logger.debug(
+      `[generateContinuation:${sessionId}] Processing choice: "${choice.text}" (turn ${state.turnCount}, behavior: ${currentChoiceBehaviorTag}, back-to-back positive: ${backToBackPositive})`,
+    );
+
+    const systemPrompt = this.promptService.buildContinuePrompt({
+      targetBehavior: state.targetBehavior,
+      previousNodeSummary: state.lastNodeText,
+      childChoice: choice.text,
+      turnCount: state.turnCount,
+      visualStyle: state.visualStyle,
+      characterAnchor: state.characterAnchor,
+      setting: state.storySetting,
+      mainCharacter: state.mainCharacter,
+    });
+
+    let llmResponse: ContinueLlmResponse;
+    let cseResult: CseResponse | null = null;
+    let useFallback = false;
+
+    this.logger.log(
+      `[generateContinuation:${sessionId}] Starting LLM generation for continuation node (turn: ${state.turnCount}, behavior: ${state.targetBehavior})`,
+    );
+
+    try {
+      const llmStartTime = Date.now();
+      const result = await this.generateWithCseGate<ContinueLlmResponse>({
+        systemPrompt,
+        userMessage: forceEndingThisTurn
+          ? `The child chose: "${choice.text}". This node MUST end the story now with clear emotional closure, a completed resolution, and no new tasks, no new problems, and no "what next" setup. Set is_ending to true and make the text feel final.`
+          : `The child chose: "${choice.text}". Continue the same story world with the same main character, same setting, and same visual identity as prior nodes.`,
+        jsonSchema: CONTINUE_RESPONSE_SCHEMA,
+        targetBehavior: state.targetBehavior,
+        childAge: state.childAge,
+      });
+      const llmDuration = Date.now() - llmStartTime;
+      llmResponse = result.response;
+      cseResult = result.cseResult;
+      this.logger.log(
+        `[generateContinuation:${sessionId}] LLM generation complete (${llmDuration}ms, ${llmResponse.choices.length} choices)`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[generateContinuation:${sessionId}] LLM continuation generation failed after CSE retries, using safe fallback: ${error.message}`,
+        error,
+      );
+      llmResponse = { ...FALLBACK_CONTINUE_RESPONSE };
+      useFallback = true;
+    }
+
+    if (forceEndingThisTurn) {
+      this.logger.debug(
+        `[generateContinuation:${sessionId}] Applying forced-ending normalization (${hardLimitReached ? 'hard_limit' : 'positive_streak'})`,
+      );
+      llmResponse = this.normalizeForcedEndingResponse(
+        llmResponse,
+        state.targetBehavior,
+        hardLimitReached ? 'hard_limit' : 'positive_streak',
+      );
+    }
+
+    let imageUrl: string | null = state.lastGeneratedImageUrl || null;
+    let audioUrl: string | null = null;
+
+    if (!useFallback) {
+      this.logger.debug(
+        `[generateContinuation:${sessionId}] Generating image and audio assets`,
+      );
+      const mediaStartTime = Date.now();
+      const imagePromise = (async () => {
+        let newImageBuffer: Buffer;
+        const enhancedVisualPrompt = [
+          `Keep image in 16:9 aspect ratio.`,
+          `Main character must remain the same: ${state.mainCharacter}.`,
+          `Story setting must remain the same: ${state.storySetting}.`,
+          `Character MUST remain identical: ${state.characterAnchor}`,
+          `Visual Style: ${state.visualStyle}`,
+          `Continuity from previous node summary: ${state.lastNodeText}`,
+          `Scene: ${llmResponse.visual_context}`,
+          `Use lower detail level for faster generation.`,
+        ].join(' ');
+
+        if (state.lastGeneratedImageUrl) {
+          try {
+            this.logger.debug(
+              `[generateContinuation:${sessionId}] Fetching previous image for context (${state.lastGeneratedImageUrl})`,
+            );
+            const prevImageBuffer =
+              await this.storageService.readObjectAsBuffer(
+                state.lastGeneratedImageUrl,
+              );
+            const prevImageBase64 = prevImageBuffer.toString('base64');
+
+            this.logger.debug(
+              `[generateContinuation:${sessionId}] Generating new image based on previous (${prevImageBase64.length} bytes)`,
+            );
+            newImageBuffer = await this.geminiService.generateImageFromImage(
+              enhancedVisualPrompt,
+              prevImageBase64,
+              'image/png',
+            );
+          } catch (error) {
+            this.logger.warn(
+              `[generateContinuation:${sessionId}] Failed to fetch previous image from URL ${state.lastGeneratedImageUrl}, generating from text instead: ${error.message}`,
+            );
+            newImageBuffer =
+              await this.geminiService.generateImageFromText(
+                enhancedVisualPrompt,
+              );
+          }
+        } else {
+          this.logger.debug(
+            `[generateContinuation:${sessionId}] Generating new image from text prompt`,
+          );
+          newImageBuffer =
+            await this.geminiService.generateImageFromText(
+              enhancedVisualPrompt,
+            );
+        }
+
+        return this.storageService.uploadBuffer(
+          newImageBuffer,
+          'image/png',
+          'story-images',
+        );
+      })();
+
+      const [imageResult, audioResult] = await Promise.allSettled([
+        imagePromise,
+        this.generateAndStoreAudio(llmResponse.node_text),
+      ]);
+
+      if (imageResult.status === 'fulfilled') {
+        imageUrl = imageResult.value;
+        this.logger.debug(
+          `[generateContinuation:${sessionId}] Image generated successfully: ${imageUrl}`,
+        );
+      } else {
+        this.logger.warn(
+          `[generateContinuation:${sessionId}] Image generation failed for continuation node: ${imageResult.reason?.message}`,
+        );
+      }
+
+      if (audioResult.status === 'fulfilled') {
+        audioUrl = audioResult.value;
+        this.logger.debug(
+          `[generateContinuation:${sessionId}] Audio generated successfully: ${audioUrl}`,
+        );
+      } else {
+        this.logger.warn(
+          `[generateContinuation:${sessionId}] TTS generation failed for continuation node: ${audioResult.reason?.message}`,
+        );
+      }
+
+      const mediaDuration = Date.now() - mediaStartTime;
+      this.logger.log(
+        `[generateContinuation:${sessionId}] Media generation complete (${mediaDuration}ms)`,
+      );
+    }
+
+    const isEnding = llmResponse.is_ending === true;
+    const confidenceScore =
+      cseResult?.confidence_score ?? (useFallback ? 0.5 : 1.0);
+    const isApproved = cseResult?.safety_status === 'SAFE';
+
+    const finalIsEnding = isEnding || hardLimitReached || backToBackPositive;
+
+    return {
+      llmResponse,
+      cseResult,
+      useFallback,
+      forceEndingThisTurn,
+      hardLimitReached,
+      backToBackPositive,
+      finalIsEnding,
+      imageUrl,
+      audioUrl,
+      confidenceScore,
+      isApproved,
+    };
+  }
+
   private async generateAndStoreImage(
     visualContext: string,
     characterAnchor?: string,
@@ -849,7 +1100,9 @@ export class StoryService {
     // Build enhanced image prompt with character consistency
     const enhancedPrompt = [
       `Generate image in 16:9 aspect ratio.`,
-      mainCharacter ? `Main character (do not change type/species): ${mainCharacter}` : '',
+      mainCharacter
+        ? `Main character (do not change type/species): ${mainCharacter}`
+        : '',
       setting ? `Keep scene in this setting: ${setting}` : '',
       characterAnchor ? `Character: ${characterAnchor}` : '',
       visualStyle ? `Style: ${visualStyle}` : '',
@@ -954,7 +1207,9 @@ export class StoryService {
    * Update behavioral analytics for a session after each choice.
    * Aggregates choice data and computes engagement metrics.
    */
-  private async updateSessionBehavioralAnalytics(sessionId: string): Promise<void> {
+  private async updateSessionBehavioralAnalytics(
+    sessionId: string,
+  ): Promise<void> {
     const interactions = await this.prisma.interaction.findMany({
       where: { sessionId },
       include: { choice: true },
@@ -1105,12 +1360,15 @@ export class StoryService {
   private analyzeDecisionSpeedTrend(timeTakenValues: number[]): string {
     if (timeTakenValues.length === 0) return 'Moderate';
 
-    const avgTime = timeTakenValues.reduce((a, b) => a + b, 0) / timeTakenValues.length;
+    const avgTime =
+      timeTakenValues.reduce((a, b) => a + b, 0) / timeTakenValues.length;
 
     // Standard deviation to detect variability
     const variance =
-      timeTakenValues.reduce((sum, val) => sum + Math.pow(val - avgTime, 2), 0) /
-      timeTakenValues.length;
+      timeTakenValues.reduce(
+        (sum, val) => sum + Math.pow(val - avgTime, 2),
+        0,
+      ) / timeTakenValues.length;
     const stdDev = Math.sqrt(variance);
     const coefficientOfVariation = stdDev / avgTime;
 
@@ -1140,7 +1398,9 @@ export class StoryService {
     const earlyChoices = patterns.slice(0, midpoint);
     const lateChoices = patterns.slice(midpoint);
 
-    const earlyTargetCount = earlyChoices.filter((p) => p === targetType).length;
+    const earlyTargetCount = earlyChoices.filter(
+      (p) => p === targetType,
+    ).length;
     const lateTargetCount = lateChoices.filter((p) => p === targetType).length;
 
     const earlyRatio = earlyTargetCount / Math.max(earlyChoices.length, 1);
@@ -1183,9 +1443,10 @@ export class StoryService {
     consistencyScore = Math.max(consistencyScore, 0);
 
     // Factor 3: Content quality (0.4 weight)
-    const avgConfidence = confidenceScores.length > 0
-      ? confidenceScores.reduce((a, b) => a + b, 0) / confidenceScores.length
-      : 0;
+    const avgConfidence =
+      confidenceScores.length > 0
+        ? confidenceScores.reduce((a, b) => a + b, 0) / confidenceScores.length
+        : 0;
     const qualityScore = avgConfidence;
 
     // Weighted average
@@ -1242,7 +1503,9 @@ export class StoryService {
 
     // Decision speed insights
     if (metrics.avgTimeTakenMs < 1500) {
-      notes.push('Child made decisions quickly - may indicate impulsivity or high confidence.');
+      notes.push(
+        'Child made decisions quickly - may indicate impulsivity or high confidence.',
+      );
     } else if (metrics.avgTimeTakenMs > 4000) {
       notes.push(
         'Child took longer to decide - may indicate careful consideration or decision anxiety.',
@@ -1255,7 +1518,9 @@ export class StoryService {
     if (metrics.engagementScore >= 0.8) {
       notes.push('Overall engagement score is high - strong session quality.');
     } else if (metrics.engagementScore < 0.4) {
-      notes.push('Overall engagement score is low - may warrant session review.');
+      notes.push(
+        'Overall engagement score is low - may warrant session review.',
+      );
     }
 
     return notes.join(' ');
@@ -1267,11 +1532,13 @@ export class StoryService {
    */
   async getSessionBehavioralAnalytics(sessionId: string) {
     const trimmedSessionId = sessionId.trim();
-    
-    this.logger.debug(`Looking for analytics for session: "${trimmedSessionId}"`);
-    
+
+    this.logger.debug(
+      `Looking for analytics for session: "${trimmedSessionId}"`,
+    );
+
     const analytics = await this.prisma.behavioralAnalytics.findFirst({
-      where: { 
+      where: {
         sessionId: trimmedSessionId,
       },
     });
@@ -1280,15 +1547,15 @@ export class StoryService {
       this.logger.error(
         `Analytics not found for session: "${trimmedSessionId}". Checking if session exists...`,
       );
-      
+
       const session = await this.prisma.session.findUnique({
         where: { id: trimmedSessionId },
       });
-      
+
       if (!session) {
         throw new NotFoundException('Session not found.');
       }
-      
+
       throw new NotFoundException(
         'Behavioral analytics not found for this session.',
       );
@@ -1310,9 +1577,10 @@ export class StoryService {
       summary: {
         sessionId,
         totalInteractions: interactions.length,
-        sessionDuration: interactions.length > 0
-          ? interactions[interactions.length - 1].sessionDuration
-          : null,
+        sessionDuration:
+          interactions.length > 0
+            ? interactions[interactions.length - 1].sessionDuration
+            : null,
         overallEngagement: analytics.engagementScore,
         therapistNotesForReview: analytics.notesForTherapist,
         flaggedForTherapistReview: analytics.flaggedForReview,

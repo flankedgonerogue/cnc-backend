@@ -116,7 +116,8 @@ export class GeminiService implements OnModuleInit {
         confidence_score: 0.5,
         safety_status: 'REVIEW_REQUIRED',
         flagged_issues: ['CSE evaluation call failed'],
-        reasoning: 'The CSE evaluator could not be reached. Defaulting to review.',
+        reasoning:
+          'The CSE evaluator could not be reached. Defaulting to review.',
         suggested_fix: 'Manual review required.',
       };
     }

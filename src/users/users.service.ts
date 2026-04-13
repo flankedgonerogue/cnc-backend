@@ -1,10 +1,16 @@
-import { Injectable, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Role, User as PrismaUser } from '../generated/prisma/client';
 import { User } from './user.entity';
 import { UpdateUserInput } from './dto/update-user.input';
 import { CreateChildInput } from './dto/create-child.input';
 import * as bcrypt from 'bcrypt';
+import { createHash } from 'node:crypto';
 
 @Injectable()
 export class UsersService {
@@ -33,7 +39,8 @@ export class UsersService {
       updatedAt: user.updatedAt,
       deletedAt: user.deletedAt ?? undefined,
       passwordResetToken: user.passwordResetToken ?? undefined,
-      passwordResetTokenExpiresAt: user.passwordResetTokenExpiresAt ?? undefined,
+      passwordResetTokenExpiresAt:
+        user.passwordResetTokenExpiresAt ?? undefined,
       emailVerified: user.emailVerified ?? undefined,
       therapistProfile: user.therapistProfile ?? undefined,
       guardianProfile: user.guardianProfile ?? undefined,
@@ -123,7 +130,9 @@ export class UsersService {
     return users.map((user) => this.mapToUserEntity(user));
   }
 
-  async findTherapists(options?: { includeDeleted?: boolean }): Promise<User[]> {
+  async findTherapists(options?: {
+    includeDeleted?: boolean;
+  }): Promise<User[]> {
     const includeDeleted = options?.includeDeleted ?? false;
     const users = await this.prisma.user.findMany({
       where: includeDeleted
@@ -273,7 +282,9 @@ export class UsersService {
       where: { email: input.email },
     });
     if (existing) {
-      throw new ConflictException(`User with email ${input.email} already exists.`);
+      throw new ConflictException(
+        `User with email ${input.email} already exists.`,
+      );
     }
 
     const passwordHash = await bcrypt.hash(input.password, 10);
@@ -359,6 +370,15 @@ export class UsersService {
    */
   async hashPassword(password: string): Promise<string> {
     return bcrypt.hash(password, 10);
+  }
+
+  /**
+   * Deterministic digest of the raw reset token for DB lookup.
+   * Do not use bcrypt here: bcrypt uses a random salt per call, so hashing the
+   * same token twice yields different strings and exact-match lookup fails.
+   */
+  hashResetToken(token: string): string {
+    return createHash('sha256').update(token, 'utf8').digest('hex');
   }
 
   /**

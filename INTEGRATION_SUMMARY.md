@@ -10,32 +10,22 @@ The **Chronicles N Conversations** therapeutic storytelling engine has been succ
 
 ### 📦 Dependencies
 - `@google/generative-ai@0.24.1` - Gemini AI SDK
-- `axios@1.13.5` - HTTP client for image generation API
 
 ### 🎨 New Modules
 
-#### 1. **Story Generation** (`src/story-generation/`)
-- Gemini AI integration for narrative generation
-- Strict JSON output parsing
-- Safety filters and content moderation
-- Few-shot learning examples
+#### 1. **Story module** (`src/story/`)
+- `StoryService` — interactive story flow (start/continue), nodes, choices, analytics
+- `GeminiService` — narrative, image, and optional TTS via Google Generative AI
+- `PromptService` — system prompts for initialization and continuation
 
-#### 2. **Image Generation** (`src/image-generation/`)
-- Nano Banana API integration
-- Text-to-Image (initial scene)
-- Image-to-Image editing (character consistency)
-- Fallback error handling
+#### 2. **Prompts assets** (`src/prompts/`)
+- XML-based prompts (where configured)
+- Shared prompt assets for the engine
 
-#### 3. **Prompts System** (`src/prompts/`)
-- XML-based system prompts
-- Dynamic user message construction
-- Initialization and continuation templates
-
-#### 4. **Sessions Module** (`src/sessions/`)
-- Game loop orchestration
-- Session state management
-- REST API endpoints
-- Database persistence
+#### 3. **Sessions Module** (`src/sessions/`)
+- Session assignment and listing (child + template)
+- REST / GraphQL APIs and access guards
+- Database persistence for sessions
 
 ---
 
@@ -43,22 +33,20 @@ The **Chronicles N Conversations** therapeutic storytelling engine has been succ
 
 ```
 src/
+├── story/
+│   ├── story.service.ts
+│   ├── story.controller.ts
+│   ├── gemini/
+│   └── prompt/
 ├── prompts/
 │   ├── prompts.service.ts
 │   ├── system-prompt-init.xml
 │   └── system-prompt-cont.xml
-├── story-generation/
-│   └── story-generation.service.ts
-├── image-generation/
-│   └── image-generation.service.ts
 └── sessions/
     ├── sessions.module.ts
     ├── sessions.service.ts
     ├── sessions.controller.ts
     └── dto/
-        ├── initialize-session.dto.ts
-        ├── make-choice.dto.ts
-        └── session-response.dto.ts
 
 docs/
 ├── CHRONICLES_N_CONVERSATIONS.md  (Complete technical guide)
@@ -76,9 +64,7 @@ docs/
    - Made `Session.templateId` optional (allows AI-generated sessions)
 
 3. **`.env.example`**
-   - Added `GEMINI_API_KEY`
-   - Added `NANO_BANANA_API_KEY`
-   - Added `NANO_BANANA_BASE_URL`
+   - Added `GEMINI_API_KEY` and related Gemini configuration
 
 4. **`README.md`**
    - Updated overview
@@ -166,7 +152,6 @@ Authorization: Bearer {JWT_TOKEN}
 
 2. **Add API Keys to `.env`**
    - Get Gemini API key: https://makersuite.google.com/app/apikey
-   - Get Nano Banana API key: https://nanobanana.ai
    - Add DATABASE_URL
 
 3. **Run Database Migration**
@@ -328,9 +313,9 @@ All documentation has been created:
    - Review generated story quality
    - Adjust prompts if needed
 
-3. **Image Generation**
-   - Nano Banana may take 10-30 seconds
-   - First generation is slowest
+3. **Image generation (Gemini)**
+   - Image steps may take noticeable time depending on model and load
+   - First generation is often the slowest
    - Consider implementing loading states
 
 4. **Performance**

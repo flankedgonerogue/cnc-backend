@@ -3,9 +3,11 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
 import { User } from '../users/user.entity';
@@ -25,6 +27,7 @@ export class AuthService {
     private jwtService: JwtService,
     private emailService: EmailService,
     private configService: ConfigService,
+    private prisma: PrismaService,
   ) {}
 
   /**
@@ -145,15 +148,72 @@ export class AuthService {
       );
     }
 
-    // Create new user
-    const user = await this.usersService.create({
-      email: registerDto.email,
-      password: registerDto.password,
-      role: registerDto.role,
+    // Validate therapist exists if registering as CHILD
+    let therapistId: string | undefined;
+    if (registerDto.role === Role.CHILD) {
+      if (!registerDto.therapistEmail) {
+        throw new BadRequestException(
+          'therapistEmail is required when registering as CHILD',
+        );
+      }
+      const therapist = await this.usersService.findByEmail(
+        registerDto.therapistEmail,
+      );
+      if (!therapist) {
+        throw new NotFoundException(
+          `Therapist with email ${registerDto.therapistEmail} not found`,
+        );
+      }
+      const therapistProfile = await this.prisma.therapistProfile.findUnique({
+        where: { userId: therapist.id },
+      });
+      if (!therapistProfile) {
+        throw new BadRequestException(
+          `User ${registerDto.therapistEmail} is not a therapist`,
+        );
+      }
+      therapistId = therapistProfile.id;
+    }
+
+    // Create new user with profile
+    await this.prisma.user.create({
+      data: {
+        email: registerDto.email,
+        passwordHash: registerDto.password
+          ? await this.usersService.hashPassword(registerDto.password)
+          : null,
+        role: registerDto.role,
+        firstName: registerDto.firstName,
+        lastName: registerDto.lastName,
+        displayName:
+          registerDto.firstName || registerDto.lastName
+            ? `${registerDto.firstName ?? ''} ${registerDto.lastName ?? ''}`.trim()
+            : undefined,
+        guardianProfile:
+          registerDto.role === Role.GUARDIAN
+            ? {
+                create: {},
+              }
+            : undefined,
+        childProfile:
+          registerDto.role === Role.CHILD
+            ? {
+                create: {
+                  therapistId: therapistId!,
+                },
+              }
+            : undefined,
+      },
     });
 
-    const sanitizedUser = this.usersService.sanitizeUser(user);
-    const accessToken = this.generateToken(user);
+    // Fetch the created user with profiles
+    const createdUser = await this.usersService.findByEmail(registerDto.email);
+    if (!createdUser) {
+      throw new Error('Failed to create user');
+    }
+
+    const sanitizedUser = this.usersService.sanitizeUser(createdUser);
+    const accessToken = this.generateToken(createdUser);
 
     return {
       access_token: accessToken,
@@ -206,7 +266,9 @@ export class AuthService {
   /**
    * Request password reset - generates token, saves to DB, sends email
    */
-  async requestPasswordReset(email: string): Promise<{ message: string }> {
+  async requestPasswordReset(
+    email: string,
+  ): Promise<{ message: string; success: boolean }> {
     const user = await this.usersService.findByEmail(email, {
       includeDeleted: true,
     });
@@ -216,12 +278,13 @@ export class AuthService {
       return {
         message:
           'If an account exists with this email, a password reset link has been sent.',
+        success: true,
       };
     }
 
     // Generate cryptographically secure reset token
     const token = (await randomBytesAsync(32)).toString('hex');
-    const hashedToken = await this.usersService.hashPassword(token);
+    const hashedToken = this.usersService.hashResetToken(token);
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + this.resetTokenExpirationHours);
 
@@ -241,11 +304,7 @@ export class AuthService {
 
     // Send email
     try {
-      await this.emailService.sendPasswordResetEmail(
-        email,
-        token,
-        resetUrl,
-      );
+      await this.emailService.sendPasswordResetEmail(email, token, resetUrl);
     } catch (error) {
       // Log error but don't expose to user
       console.error('Failed to send password reset email:', error);
@@ -254,6 +313,7 @@ export class AuthService {
     return {
       message:
         'If an account exists with this email, a password reset link has been sent.',
+      success: true,
     };
   }
 
@@ -261,7 +321,7 @@ export class AuthService {
    * Validate reset token without using it
    */
   async validateResetToken(token: string): Promise<{ valid: boolean }> {
-    const hashedToken = await this.usersService.hashPassword(token);
+    const hashedToken = this.usersService.hashResetToken(token);
 
     const user = await this.usersService.findByResetToken(hashedToken);
 
@@ -282,15 +342,15 @@ export class AuthService {
    */
   async resetPassword(
     token: string,
-    newPassword: string,
-  ): Promise<{ message: string }> {
-    if (!newPassword || newPassword.length < 8) {
+    password: string,
+  ): Promise<{ message: string; success: boolean }> {
+    if (!password || password.length < 8) {
       throw new BadRequestException(
         'Password must be at least 8 characters long',
       );
     }
 
-    const hashedToken = await this.usersService.hashPassword(token);
+    const hashedToken = this.usersService.hashResetToken(token);
 
     const user = await this.usersService.findByResetToken(hashedToken);
 
@@ -304,12 +364,12 @@ export class AuthService {
     }
 
     // Hash new password and update user
-    const passwordHash = await this.usersService.hashPassword(newPassword);
+    const passwordHash = await this.usersService.hashPassword(password);
     await this.usersService.updatePasswordAndClearResetToken(
       user.id,
       passwordHash,
     );
 
-    return { message: 'Password has been successfully reset' };
+    return { message: 'Password has been successfully reset', success: true };
   }
 }
