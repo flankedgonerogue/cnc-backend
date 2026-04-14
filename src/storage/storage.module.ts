@@ -153,8 +153,11 @@ export class LocalDiskStorageService implements StorageService {
         localStorageService: LocalDiskStorageService,
         s3StorageService: S3StorageService,
       ) => {
-        const storageType =
-          configService.get<string>('STORAGE_TYPE') || 'local';
+        const storageType = (
+          configService.get<string>('STORAGE_TYPE') || 'local'
+        )
+          .toLowerCase()
+          .trim();
         if (storageType === 's3') {
           return s3StorageService;
         }

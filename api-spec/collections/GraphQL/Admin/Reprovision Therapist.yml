@@ -8,8 +8,8 @@ graphql:
   url: "{{BASE_URL}}/graphql"
   body:
     query: |-
-      mutation DeprovisionTherapist($therapistUserId: ID!) {
-        deprovisionTherapist(therapistUserId: $therapistUserId) {
+      mutation ReprovisionTherapist($therapistUserId: ID!) {
+        reprovisionTherapist(therapistUserId: $therapistUserId) {
           userId
           deletedAt
         }

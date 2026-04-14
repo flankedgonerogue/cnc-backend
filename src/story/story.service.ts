@@ -305,7 +305,9 @@ export class StoryService {
       lastNodeText: llmResponse.node_text,
       visualStyle: llmResponse.visual_style,
       characterAnchor: llmResponse.character_anchor || template.mainCharacter,
-      lastGeneratedImageUrl: imageUrl ?? '',
+      lastGeneratedImageUrl: this.sanitizeCachedImageUrlForStorageMode(
+        imageUrl ?? '',
+      ),
     });
 
     const totalDuration = Date.now() - sessionStartTime;
@@ -602,7 +604,9 @@ export class StoryService {
       );
     } else {
       state.lastNodeText = llmResponse.node_text;
-      state.lastGeneratedImageUrl = imageUrl ?? '';
+      state.lastGeneratedImageUrl = this.sanitizeCachedImageUrlForStorageMode(
+        imageUrl ?? '',
+      );
       state.lastChoiceBehaviorTag = currentChoiceBehaviorTag;
       this.sessionCache.set(dto.sessionId, state);
 
@@ -969,7 +973,9 @@ export class StoryService {
       );
     }
 
-    let imageUrl: string | null = state.lastGeneratedImageUrl || null;
+    // New node must only get URLs from this turn's uploads. Do not default to the
+    // parent's URL (e.g. legacy /uploads/... when STORAGE_TYPE=S3 was mis-resolved).
+    let imageUrl: string | null = null;
     let audioUrl: string | null = null;
 
     if (!useFallback) {
@@ -1130,6 +1136,32 @@ export class StoryService {
     );
   }
 
+  private isS3Storage(): boolean {
+    return (
+      (this.configService.get<string>('STORAGE_TYPE') || 'local')
+        .toLowerCase()
+        .trim() === 's3'
+    );
+  }
+
+  /**
+   * When using S3, session cache must only hold absolute http(s) URLs so
+   * readObjectAsBuffer works and prefetch does not propagate legacy disk paths.
+   */
+  private sanitizeCachedImageUrlForStorageMode(url: string): string {
+    const trimmed = url.trim();
+    if (!trimmed) {
+      return '';
+    }
+    if (!this.isS3Storage()) {
+      return trimmed;
+    }
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    return '';
+  }
+
   private async validateSessionAccess(
     userId: string,
     child: { userId: string; therapistId: string },
@@ -1194,7 +1226,9 @@ export class StoryService {
       lastNodeText: latestNode?.textContent ?? '',
       visualStyle: session.template.visualStyle,
       characterAnchor: session.template.mainCharacter,
-      lastGeneratedImageUrl: latestNode?.imageUrl ?? '',
+      lastGeneratedImageUrl: this.sanitizeCachedImageUrlForStorageMode(
+        latestNode?.imageUrl ?? '',
+      ),
     };
 
     this.sessionCache.set(sessionId, state);
