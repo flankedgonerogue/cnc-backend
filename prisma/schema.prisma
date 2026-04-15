@@ -170,7 +170,7 @@ model Choice {
   node   StoryNode @relation(fields: [nodeId], references: [id])
 
   text          String
-  behavioralTag String? // Positive/Negative/Neutral for analytics [cite: 631]
+  behavioralTag String? // Positive | Negative [cite: 631]
   interactions  Interaction[]
 }
 
@@ -190,7 +190,7 @@ model Interaction {
   
   // Behavioral analytics
   choiceSequenceNum Int // Position in session (1st, 2nd, 3rd choice, etc.)
-  behavioralPattern String? // e.g., "Positive", "Negative", "Mixed" - derived from Choice.behavioralTag
+  behavioralPattern String? // "Positive" | "Negative" — derived from Choice.behavioralTag
   
   // Generated content quality metrics
   nodeConfidenceScore Float? // CSE confidence of generated response node
@@ -211,7 +211,6 @@ model BehavioralAnalytics {
   totalChoices              Int @default(0)
   positiveChoices           Int @default(0)
   negativeChoices           Int @default(0)
-  neutralChoices            Int @default(0)
   
   // Timing metrics
   avgTimeTakenMs            Float @default(0)

@@ -41,7 +41,7 @@ You will receive a configuration block containing:
   "visual_context": "String (The full prompt for the initial image generation)",
   "choices": [
     { "choice_text": "String (Positive Action)", "behavior_type": "Positive" },
-    { "choice_text": "String (Neutral/Negative Action)", "behavior_type": "Neutral/Negative" }
+    { "choice_text": "String (Negative Action)", "behavior_type": "Negative" }
   ]
 }
 </output_schema>
@@ -58,7 +58,7 @@ Output:
   "visual_context": "3D animated movie style, disney-pixar aesthetic, cute green t-rex dinosaur, orange spots on back, wearing a blue baseball cap, sitting in yellow sandbox, holding red plastic shovel, tall sand tower, friendly girl dinosaur standing nearby, sunny day, soft lighting",
   "choices": [
     { "choice_text": "Give shovel", "behavior_type": "Positive" },
-    { "choice_text": "Hide shovel", "behavior_type": "Neutral/Negative" }
+    { "choice_text": "Hide shovel", "behavior_type": "Negative" }
   ]
 }
 
@@ -73,7 +73,7 @@ Output:
   "visual_context": "Digital concept art, semi-realistic, female astronaut captain, orange space suit with white stripes, sleek futuristic helmet, standing on red mars surface, broken rover vehicle smoke, red alarm light flashing, frustrated facial expression, dynamic lighting",
   "choices": [
     { "choice_text": "Take deep breaths", "behavior_type": "Positive" },
-    { "choice_text": "Kick the tire", "behavior_type": "Neutral/Negative" }
+    { "choice_text": "Kick the tire", "behavior_type": "Negative" }
   ]
 }
 </few_shot_examples>

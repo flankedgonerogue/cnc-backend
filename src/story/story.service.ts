@@ -1259,7 +1259,6 @@ export class StoryService {
           totalChoices: 0,
           positiveChoices: 0,
           negativeChoices: 0,
-          neutralChoices: 0,
           avgTimeTakenMs: 0,
           engagementScore: 0.5,
           avgNodeConfidenceScore: 0,
@@ -1270,16 +1269,11 @@ export class StoryService {
       return;
     }
 
-    // Count choice types
+    // Count choice types: only Positive vs Negative (legacy Neutral / Neutral/Negative count as Negative)
     const positiveChoices = interactions.filter(
       (i) => i.behavioralPattern === 'Positive',
     ).length;
-    const negativeChoices = interactions.filter(
-      (i) => i.behavioralPattern === 'Negative',
-    ).length;
-    const neutralChoices = interactions.filter(
-      (i) => i.behavioralPattern === 'Neutral',
-    ).length;
+    const negativeChoices = interactions.length - positiveChoices;
 
     // Calculate timing metrics
     const timeTakenValues = interactions.map((i) => i.timeTakenMs);
@@ -1293,7 +1287,9 @@ export class StoryService {
 
     // Determine positive choice pattern
     const positiveChoicePattern = this.analyzeChoicePattern(
-      interactions.map((i) => i.behavioralPattern ?? 'Neutral').filter(Boolean),
+      interactions.map((i) =>
+        i.behavioralPattern === 'Positive' ? 'Positive' : 'Negative',
+      ),
       'Positive',
     );
 
@@ -1316,20 +1312,19 @@ export class StoryService {
       (i) => i.nodeApprovedByTherapist,
     ).length;
 
-    // Determine dominant behavior pattern
+    // Determine dominant behavior pattern (ties → Mixed)
     const dominantBehaviorPattern =
-      positiveChoices >= negativeChoices && positiveChoices >= neutralChoices
+      positiveChoices > negativeChoices
         ? 'Positive'
-        : negativeChoices >= neutralChoices
+        : positiveChoices < negativeChoices
           ? 'Negative'
-          : 'Neutral';
+          : 'Mixed';
 
     // Generate insights for therapist
     const notesForTherapist = this.generateTherapistNotes({
       totalChoices: interactions.length,
       positiveChoices,
       negativeChoices,
-      neutralChoices,
       avgTimeTakenMs,
       engagementScore,
       dominantBehaviorPattern,
@@ -1348,7 +1343,6 @@ export class StoryService {
         totalChoices: interactions.length,
         positiveChoices,
         negativeChoices,
-        neutralChoices,
         avgTimeTakenMs,
         minTimeTakenMs,
         maxTimeTakenMs,
@@ -1367,7 +1361,6 @@ export class StoryService {
         totalChoices: interactions.length,
         positiveChoices,
         negativeChoices,
-        neutralChoices,
         avgTimeTakenMs,
         minTimeTakenMs,
         maxTimeTakenMs,
@@ -1383,7 +1376,7 @@ export class StoryService {
     });
 
     this.logger.log(
-      `Updated behavioral analytics for session ${sessionId}: ${positiveChoices} positive, ${negativeChoices} negative, ${neutralChoices} neutral choices`,
+      `Updated behavioral analytics for session ${sessionId}: ${positiveChoices} positive, ${negativeChoices} negative (non-positive) choices`,
     );
   }
 
@@ -1497,7 +1490,6 @@ export class StoryService {
     totalChoices: number;
     positiveChoices: number;
     negativeChoices: number;
-    neutralChoices: number;
     avgTimeTakenMs: number;
     engagementScore: number;
     dominantBehaviorPattern: string;
@@ -1507,19 +1499,16 @@ export class StoryService {
     // Total engagement summary
     notes.push(`Session included ${metrics.totalChoices} choices.`);
 
-    // Choice distribution
+    // Choice distribution (Positive vs Negative only)
     const positivePercent = Math.round(
       (metrics.positiveChoices / metrics.totalChoices) * 100,
     );
     const negativePercent = Math.round(
       (metrics.negativeChoices / metrics.totalChoices) * 100,
     );
-    const neutralPercent = Math.round(
-      (metrics.neutralChoices / metrics.totalChoices) * 100,
-    );
 
     notes.push(
-      `Choice distribution: ${positivePercent}% positive, ${negativePercent}% negative, ${neutralPercent}% neutral.`,
+      `Choice distribution: ${positivePercent}% positive, ${negativePercent}% negative.`,
     );
 
     // Dominant pattern
@@ -1532,7 +1521,9 @@ export class StoryService {
         'Child made more negative choices. Consider exploring triggers or barriers in follow-up.',
       );
     } else {
-      notes.push('Child demonstrated mixed behavioral patterns.');
+      notes.push(
+        'Child demonstrated mixed behavioral patterns (positive and negative choices were balanced).',
+      );
     }
 
     // Decision speed insights

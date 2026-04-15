@@ -13,7 +13,7 @@ export const INIT_RESPONSE_SCHEMA = {
           choice_text: { type: 'string' as const },
           behavior_type: {
             type: 'string' as const,
-            enum: ['Positive', 'Neutral/Negative'],
+            enum: ['Positive', 'Negative'],
           },
         },
         required: ['choice_text', 'behavior_type'],
@@ -43,7 +43,7 @@ export const CONTINUE_RESPONSE_SCHEMA = {
           choice_text: { type: 'string' as const },
           behavior_type: {
             type: 'string' as const,
-            enum: ['Positive', 'Neutral/Negative'],
+            enum: ['Positive', 'Negative'],
           },
         },
         required: ['choice_text', 'behavior_type'],

@@ -271,7 +271,7 @@ All documentation has been created:
 - Confidence score tracking
 
 **Choice**
-- Behavioral tags (Positive/Negative/Neutral)
+- Behavioral tags (`Positive` or `Negative` only)
 - Links to parent node
 
 **Interaction**

@@ -109,9 +109,7 @@ export class SessionsService {
             },
           },
         },
-        template: {
-          select: { targetBehavior: true, setting: true, mainCharacter: true },
-        },
+        template: true,
         _count: { select: { nodes: true } },
       },
       take: filters.take,
@@ -146,9 +144,7 @@ export class SessionsService {
     return this.prisma.session.findMany({
       where,
       include: {
-        template: {
-          select: { targetBehavior: true, setting: true, mainCharacter: true },
-        },
+        template: true,
         _count: { select: { nodes: true } },
       },
       take: filters.take,
@@ -163,14 +159,7 @@ export class SessionsService {
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },
       include: {
-        template: {
-          select: {
-            targetBehavior: true,
-            setting: true,
-            mainCharacter: true,
-            emotionalTone: true,
-          },
-        },
+        template: true,
         child: {
           include: {
             user: {

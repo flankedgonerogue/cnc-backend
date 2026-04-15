@@ -16,7 +16,6 @@ graphql:
             totalChoices
             positiveChoices
             negativeChoices
-            neutralChoices
             avgTimeTakenMs
             minTimeTakenMs
             maxTimeTakenMs

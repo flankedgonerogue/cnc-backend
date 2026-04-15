@@ -60,7 +60,7 @@ Returns persisted **`BehavioralAnalytics`**, ordered **interactions** (with choi
 **`StoryNodeResponse`**
 
 - `sessionId`
-- `node` (`StoryNodeEntity`): `id`, `textContent`, `imageUrl`, `audioUrl`, `confidenceScore`, `isApproved`, `choices[]` (`id`, `text`, `behavioralTag`)
+- `node` (`StoryNodeEntity`): `id`, `textContent`, `imageUrl`, `audioUrl`, `confidenceScore`, `isApproved`, `choices[]` (`id`, `text`, `behavioralTag` — `Positive` or `Negative` only)
 
 **`ContinueStoryResponse`**
 
@@ -70,7 +70,7 @@ Returns persisted **`BehavioralAnalytics`**, ordered **interactions** (with choi
 
 **`SessionBehavioralAnalyticsResponse`**
 
-- `analytics` — full behavioral analytics row (counts, engagement, flags, notes, etc.)
+- `analytics` — full behavioral analytics row (`positiveChoices`, `negativeChoices` for non-positive choices, engagement, flags, notes, etc.)
 - `interactions[]` — per-choice log with timing and optional node/choice detail
 - `summary` — `sessionId`, `totalInteractions`, `sessionDuration`, `overallEngagement`, `therapistNotesForReview`, `flaggedForTherapistReview`
 

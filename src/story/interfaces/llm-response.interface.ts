@@ -1,6 +1,6 @@
 export interface LlmChoice {
   choice_text: string;
-  behavior_type: 'Positive' | 'Neutral/Negative';
+  behavior_type: 'Positive' | 'Negative';
 }
 
 export interface InitLlmResponse {

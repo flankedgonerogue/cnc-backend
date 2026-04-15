@@ -104,7 +104,7 @@ Client Choice → Story endpoints → StoryService
   "character_anchor": "cute green t-rex dinosaur...",
   "choices": [
     { "choice_text": "Give shovel", "behavior_type": "Positive" },
-    { "choice_text": "Hide shovel", "behavior_type": "Neutral/Negative" }
+    { "choice_text": "Hide shovel", "behavior_type": "Negative" }
   ]
 }
 ```
@@ -133,7 +133,7 @@ Client Choice → Story endpoints → StoryService
   "is_ending": false,
   "choices": [
     { "choice_text": "Find a stick", "behavior_type": "Positive" },
-    { "choice_text": "Knock castle over", "behavior_type": "Neutral/Negative" }
+    { "choice_text": "Knock castle over", "behavior_type": "Negative" }
   ]
 }
 ```
@@ -298,7 +298,7 @@ const imageUrl = await imageGeneration.editImage(
 
 - **Session:** Active/completed sessions
 - **StoryNode:** Individual story segments with choices
-- **Choice:** Behavioral options (Positive/Negative/Neutral)
+- **Choice:** Behavioral options (`Positive` or `Negative` only)
 - **Interaction:** Logs of child decisions (for analytics)
 
 ---

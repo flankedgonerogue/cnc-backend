@@ -34,7 +34,7 @@ You are generating a prompt for an Image-to-Image model.
   "is_ending": Boolean,
   "choices": [
     { "choice_text": "String (Positive)", "behavior_type": "Positive" },
-    { "choice_text": "String (Neutral/Negative)", "behavior_type": "Neutral/Negative" }
+    { "choice_text": "String (Negative)", "behavior_type": "Negative" }
   ]
 }
 </output_schema>
@@ -49,7 +49,7 @@ Output:
   "is_ending": false,
   "choices": [
     { "choice_text": "Find a stick", "behavior_type": "Positive" },
-    { "choice_text": "Knock castle over", "behavior_type": "Neutral/Negative" }
+    { "choice_text": "Knock castle over", "behavior_type": "Negative" }
   ]
 }
 
@@ -62,7 +62,7 @@ Output:
   "is_ending": false,
   "choices": [
     { "choice_text": "Call Sarah back", "behavior_type": "Positive" },
-    { "choice_text": "Keep digging", "behavior_type": "Neutral/Negative" }
+    { "choice_text": "Keep digging", "behavior_type": "Negative" }
   ]
 }
 </few_shot_examples>

@@ -13,7 +13,7 @@ export const FALLBACK_INIT_RESPONSE: InitLlmResponse = {
     '3D animated movie style, friendly cartoon character standing in a sunny meadow, bright colors, warm lighting, cheerful atmosphere',
   choices: [
     { choice_text: 'Say hello to a friend', behavior_type: 'Positive' },
-    { choice_text: 'Look around quietly', behavior_type: 'Neutral/Negative' },
+    { choice_text: 'Look around quietly', behavior_type: 'Negative' },
   ],
 };
 
@@ -25,6 +25,6 @@ export const FALLBACK_CONTINUE_RESPONSE: ContinueLlmResponse = {
   is_ending: false,
   choices: [
     { choice_text: 'Try something kind', behavior_type: 'Positive' },
-    { choice_text: 'Wait and watch', behavior_type: 'Neutral/Negative' },
+    { choice_text: 'Wait and watch', behavior_type: 'Negative' },
   ],
 };

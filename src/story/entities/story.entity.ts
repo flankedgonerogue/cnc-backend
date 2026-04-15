@@ -146,9 +146,6 @@ export class BehavioralAnalyticsEntity {
   @Field(() => Int)
   negativeChoices: number;
 
-  @Field(() => Int)
-  neutralChoices: number;
-
   @Field(() => Float)
   avgTimeTakenMs: number;
 

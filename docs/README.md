@@ -17,7 +17,7 @@ This directory contains the current, actively maintained guides for the backend 
   Start / continue / restart story and session analytics (GraphQL), roles, and examples.
 
 - **Session API Guide** (`session/endpoints.md`)
-  Session and child profile endpoints, request/response examples, and access rules.
+  Session assignment, listing, and detail (REST and GraphQL); optional `template` field with full story template on list/detail; access rules.
 
 - **Therapist analytics (GraphQL)** (`analytics/endpoints.md`)
   Cross-session dashboard query: trends per child, template effectiveness, week/month windows.
