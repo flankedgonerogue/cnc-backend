@@ -21,6 +21,11 @@ graphql:
           locale
           lastLoginAt
           createdAt
+              childProfile {
+            id
+            therapistId
+            guardianId
+          }
         }
       }
   auth: inherit
