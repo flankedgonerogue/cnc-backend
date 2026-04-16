@@ -13,7 +13,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Generate Prisma Client
-RUN npx prisma generate
+# Provide dummy DATABASE_URL to satisfy prisma.config.ts during build
+RUN DATABASE_URL=postgresql://dummy npx prisma generate
 # Build the NestJS app
 RUN npm run build
 # Remove devDependencies to prepare for production
