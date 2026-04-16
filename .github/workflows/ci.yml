@@ -1,0 +1,57 @@
+name: CI Pipeline
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # We need a Postgres database for Prisma integration/E2E tests
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: cnc_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client & Migrate Test DB
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/cnc_test
+        run: |
+          npx prisma generate
+          npx prisma migrate deploy
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit Tests
+        run: npm run test
+
+      - name: E2E Tests
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/cnc_test
+          JWT_SECRET: test-secret
+        run: npm run test:e2e

@@ -1,0 +1,12 @@
+.git
+.env
+node_modules/
+dist/
+coverage/
+npm-debug.log
+.prettierrc
+eslint.config.mjs
+README.md
+docs/
+api-spec/
+test/

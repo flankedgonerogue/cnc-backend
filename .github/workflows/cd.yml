@@ -1,0 +1,83 @@
+name: CD Pipeline
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Database Migrations
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: npx prisma migrate deploy
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Get ECR Login Password for EC2
+        id: ecr-password
+        run: |
+          echo "password=$(aws ecr get-login-password --region ${{ secrets.AWS_REGION }})" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: cnc-backend
+        with:
+          context: .
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest,${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_PASSWORD: ${{ steps.ecr-password.outputs.password }}
+          ECR_REPOSITORY: cnc-backend
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: ECR_REGISTRY,ECR_PASSWORD,ECR_REPOSITORY
+          script: |
+            # Login to ECR on the EC2 instance
+            echo "$ECR_PASSWORD" | docker login --username AWS --password-stdin $ECR_REGISTRY
+
+            # Pull the new image from ECR
+            docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+            # Stop and remove the old container if it exists
+            docker stop cnc-backend || true
+            docker rm cnc-backend || true
+
+            # Run the new container, mapping port 80 to 3000, using the .env file on the EC2 instance
+            docker run -d --name cnc-backend --restart unless-stopped -p 80:3000 --env-file .env $ECR_REGISTRY/$ECR_REPOSITORY:latest
