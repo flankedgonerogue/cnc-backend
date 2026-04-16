@@ -1,0 +1,29 @@
+info:
+  name: Query Template
+  type: graphql
+  seq: 4
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      query GetTemplate($id: String!) {
+        template(id: $id) {
+          id
+          targetBehavior
+          promptSuggestion
+          createdAt
+        }
+      }
+    variables: |-
+      {
+        "id": "cmo1mwr51000101obwkwm2fcr"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

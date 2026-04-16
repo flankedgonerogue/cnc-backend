@@ -1,0 +1,36 @@
+info:
+  name: Query Specific User
+  type: graphql
+  seq: 3
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      query GetUser($id: String!) {
+        user(id: $id) {
+          id
+          email
+          role
+          firstName
+          lastName
+          lastLoginAt
+          childProfile {
+            id
+            therapistId
+            guardianId
+          }
+        }
+      }
+    variables: |
+      {
+        "id": "cmo1mpfzx00035oq4xfv3xczt"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

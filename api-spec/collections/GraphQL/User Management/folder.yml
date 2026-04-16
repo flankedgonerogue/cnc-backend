@@ -1,0 +1,7 @@
+info:
+  name: User Management
+  type: folder
+  seq: 4
+
+request:
+  auth: inherit

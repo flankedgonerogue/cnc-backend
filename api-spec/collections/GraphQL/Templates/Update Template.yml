@@ -1,0 +1,31 @@
+info:
+  name: Update Template
+  type: graphql
+  seq: 2
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      mutation UpdateTemplate($id: String!, $updateData: UpdateTemplateDto!) {
+        updateTemplate(id: $id, updateTemplateInput: $updateData) {
+          id
+          targetBehavior
+          emotionalTone
+        }
+      }
+    variables: |
+      {
+        "id": "cmo1ts7v90000xoq4e05gqjwm",
+        "updateData": {
+          "targetBehavior": "Sharing toys and taking turns"
+        }
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

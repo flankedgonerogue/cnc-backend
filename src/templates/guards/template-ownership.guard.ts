@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { GqlExecutionContext } from '@nestjs/graphql';
 import { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthenticatedUser } from '../../common/types/authenticated-user';
@@ -15,9 +16,18 @@ export class TemplateOwnershipGuard implements CanActivate {
   constructor(private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<RequestWithUser>();
-    const user = request.user;
-    const templateId = request.params?.id as string | undefined;
+    let user: AuthenticatedUser | undefined;
+    let templateId: string | undefined;
+
+    if (context.getType().toString() === 'graphql') {
+      const gqlContext = GqlExecutionContext.create(context);
+      user = gqlContext.getContext().req.user;
+      templateId = gqlContext.getArgs().id;
+    } else {
+      const request = context.switchToHttp().getRequest<RequestWithUser>();
+      user = request.user;
+      templateId = request.params?.id as string | undefined;
+    }
 
     if (!user?.id || !templateId) {
       throw new ForbiddenException('Access denied.');
