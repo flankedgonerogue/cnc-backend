@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { logResolvedPublicConfiguration } from './config/log-resolved-public-configuration';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { AppController } from './app.controller';
@@ -22,6 +23,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
         if (!config.DATABASE_URL) {
           throw new Error('DATABASE_URL is required');
         }
+        logResolvedPublicConfiguration(config as Record<string, unknown>);
         return config;
       },
     }),

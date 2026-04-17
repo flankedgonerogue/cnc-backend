@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Module } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  Module,
+} from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { mkdir, writeFile, unlink, readFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
@@ -6,6 +11,8 @@ import path from 'node:path';
 import { S3StorageService } from './s3-storage.service';
 
 export const STORAGE_SERVICE = 'STORAGE_SERVICE';
+
+const storageModuleLogger = new Logger('StorageModule');
 
 export interface StorageService {
   uploadFile(file: Express.Multer.File): Promise<string>;
@@ -153,14 +160,17 @@ export class LocalDiskStorageService implements StorageService {
         localStorageService: LocalDiskStorageService,
         s3StorageService: S3StorageService,
       ) => {
-        const storageType = (
-          configService.get<string>('STORAGE_TYPE') || 'local'
-        )
-          .toLowerCase()
-          .trim();
+        const rawType = configService.get<string>('STORAGE_TYPE');
+        const storageType = (rawType || 'local').toLowerCase().trim();
         if (storageType === 's3') {
+          storageModuleLogger.log(
+            'STORAGE_TYPE is s3: using S3 storage backend',
+          );
           return s3StorageService;
         }
+        storageModuleLogger.log(
+          `Using local disk storage (STORAGE_TYPE=${rawType === undefined || rawType === '' ? 'unset' : JSON.stringify(rawType)}; default is local).`,
+        );
         return localStorageService;
       },
       inject: [ConfigService, LocalDiskStorageService, S3StorageService],
