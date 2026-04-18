@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { normalizeQuotedEnvValue } from './env-normalize';
 
 const logger = new Logger('ConfigModule');
 
@@ -48,15 +49,23 @@ export function logResolvedPublicConfiguration(
   logger.log('Non-sensitive configuration (resolved at startup)');
   for (const key of PUBLIC_VALUE_KEYS) {
     const v = config[key];
-    if (v === undefined || v === '') {
+    if (v === undefined) {
       logger.log(`  ${key}=(unset)`);
-    } else {
-      logger.log(`  ${key}=${String(v)}`);
+      continue;
     }
+    const display = normalizeQuotedEnvValue(String(v));
+    if (display === '') {
+      logger.log(`  ${key}=(unset)`);
+      continue;
+    }
+    logger.log(`  ${key}=${display}`);
   }
   for (const key of SECRET_PRESENCE_KEYS) {
     const v = config[key];
-    const present = v !== undefined && v !== '';
+    const present =
+      normalizeQuotedEnvValue(
+        v === undefined || v === null ? '' : String(v),
+      ) !== '';
     logger.log(`  ${key}=${present ? '(set)' : '(unset)'}`);
   }
 }

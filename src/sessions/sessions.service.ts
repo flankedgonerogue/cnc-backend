@@ -1,14 +1,21 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { StoryService } from '../story/story.service';
 import type { AssignSessionDto } from './dto/assign-session.dto';
 
 @Injectable()
 export class SessionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(SessionsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storyService: StoryService,
+  ) {}
 
   // ── Therapist: assign a session ────────────────────────────────
 
@@ -50,6 +57,16 @@ export class SessionsService {
       throw new NotFoundException('Template not found or not owned by you.');
     }
 
+    const sourceSessionWithStory = await this.prisma.session.findFirst({
+      where: {
+        childId: dto.childProfileId,
+        templateId: dto.templateId,
+        nodes: { some: {} },
+      },
+      orderBy: { startedAt: 'desc' },
+      select: { id: true },
+    });
+
     const session = await this.prisma.session.create({
       data: {
         childId: dto.childProfileId,
@@ -57,6 +74,41 @@ export class SessionsService {
         status: 'ACTIVE',
       },
     });
+
+    if (sourceSessionWithStory) {
+      this.logger.log(
+        `Cloning story nodes from session ${sourceSessionWithStory.id} into new session ${session.id} (child ${dto.childProfileId}, template ${dto.templateId})`,
+      );
+      await this.cloneStoryNodesFromSession(
+        sourceSessionWithStory.id,
+        session.id,
+      );
+      try {
+        await this.storyService.primeSessionCacheAfterStoryClone(session.id);
+      } catch (error) {
+        this.logger.error(
+          `Failed to prime story cache for cloned session ${session.id}`,
+          error instanceof Error ? error.stack : error,
+        );
+      }
+    } else {
+      this.logger.log(
+        `Scheduling async opening story generation for session ${session.id}`,
+      );
+      void this.storyService
+        .startStory(therapistUserId, { sessionId: session.id })
+        .then(() => {
+          this.logger.log(
+            `Async opening story generation finished for session ${session.id}`,
+          );
+        })
+        .catch((error) => {
+          this.logger.error(
+            `Async pre-generation of opening story failed for session ${session.id}`,
+            error instanceof Error ? error.stack : error,
+          );
+        });
+    }
 
     return {
       id: session.id,
@@ -182,5 +234,45 @@ export class SessionsService {
     }
 
     return session;
+  }
+
+  /**
+   * Copy story nodes and choices from a source session. Does not copy interactions
+   * or behavioral analytics; the new session records a fresh playthrough.
+   */
+  private async cloneStoryNodesFromSession(
+    sourceSessionId: string,
+    targetSessionId: string,
+  ): Promise<void> {
+    const nodes = await this.prisma.storyNode.findMany({
+      where: { sessionId: sourceSessionId },
+      orderBy: { id: 'asc' },
+      include: { choices: { orderBy: { id: 'asc' } } },
+    });
+
+    if (nodes.length === 0) {
+      return;
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const node of nodes) {
+        await tx.storyNode.create({
+          data: {
+            sessionId: targetSessionId,
+            textContent: node.textContent,
+            imageUrl: node.imageUrl,
+            audioUrl: node.audioUrl,
+            confidenceScore: node.confidenceScore,
+            isApproved: node.isApproved,
+            choices: {
+              create: node.choices.map((c) => ({
+                text: c.text,
+                behavioralTag: c.behavioralTag,
+              })),
+            },
+          },
+        });
+      }
+    });
   }
 }

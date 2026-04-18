@@ -8,6 +8,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { mkdir, writeFile, unlink, readFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
+import { normalizeQuotedEnvValue } from '../config/env-normalize';
 import { S3StorageService } from './s3-storage.service';
 
 export const STORAGE_SERVICE = 'STORAGE_SERVICE';
@@ -161,15 +162,21 @@ export class LocalDiskStorageService implements StorageService {
         s3StorageService: S3StorageService,
       ) => {
         const rawType = configService.get<string>('STORAGE_TYPE');
-        const storageType = (rawType || 'local').toLowerCase().trim();
+        const storageType = (
+          normalizeQuotedEnvValue(rawType) || 'local'
+        ).toLowerCase();
         if (storageType === 's3') {
           storageModuleLogger.log(
             'STORAGE_TYPE is s3: using S3 storage backend',
           );
           return s3StorageService;
         }
+        const forLog =
+          rawType === undefined || rawType === ''
+            ? 'unset'
+            : JSON.stringify(rawType);
         storageModuleLogger.log(
-          `Using local disk storage (STORAGE_TYPE=${rawType === undefined || rawType === '' ? 'unset' : JSON.stringify(rawType)}; default is local).`,
+          `Using local disk storage (STORAGE_TYPE raw=${forLog}; default is local).`,
         );
         return localStorageService;
       },

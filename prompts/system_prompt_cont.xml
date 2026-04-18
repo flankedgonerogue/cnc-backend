@@ -35,7 +35,7 @@ Treat these as immutable anchors for this session:
    - Must restate the locked character + locked style + locked setting + current action/expression.
    - No introduction of conflicting character identities.
 7. ENDING:
-   - Set "is_ending": true if turn >= 5 (HARD LIMIT) OR two back-to-back positive choices.
+   - Set "is_ending": true if turn >= 10 (HARD LIMIT) OR three back-to-back positive choices.
    - If "is_ending" is true, node_text MUST be a true finale:
      * close the scene emotionally,
      * celebrate learned behavior,

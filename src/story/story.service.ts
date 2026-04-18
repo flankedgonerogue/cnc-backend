@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { normalizeQuotedEnvValue } from '../config/env-normalize';
 import { PrismaService } from '../prisma/prisma.service';
 import { STORAGE_SERVICE } from '../storage/storage.module';
 import type { StorageService } from '../storage/storage.module';
@@ -29,10 +30,14 @@ import {
 } from './constants/fallback-node.constant';
 import type { StartStoryDto } from './dto/start-story.dto';
 import type { ContinueStoryDto } from './dto/continue-story.dto';
+import { PrefetchPriorityPool } from './prefetch/prefetch-priority-pool';
 
 const CSE_MAX_RETRIES = 3;
-/** After this many completed continuation turns, force an ending (matches prior behavior). */
-const STORY_HARD_TURN_LIMIT = 5;
+const CROSS_SESSION_CHOICE_LOOKBACK = 20;
+/** After this many continuation turns, force an ending. */
+const STORY_HARD_TURN_LIMIT = 10;
+/** Consecutive Positive-tagged choices (including this one) that force an ending. */
+const STORY_POSITIVE_STREAK_TO_FORCE_END = 3;
 
 type StoryContinuePayload = {
   sessionId: string;
@@ -70,14 +75,21 @@ export class StoryService {
     string,
     { choiceId: string; promise: Promise<StoryContinuePayload> }
   >();
-  /** Prefetch next node per (session, parent node, choice); max 2 concurrent generations */
+  /** Prefetch next node per (session, parent node, choice) */
   private readonly prefetchByKey = new Map<
     string,
     Promise<PrefetchContinuationBundle | null>
   >();
-  private prefetchActive = 0;
-  private readonly prefetchConcurrency = 2;
-  private prefetchWaitQueue: Array<() => void> = [];
+  /**
+   * Depth-2 bundles keyed by sessionId|rootNodeId|rootChoiceId|childIndex until
+   * the child node exists and keys are promoted into prefetchByKey.
+   */
+  private readonly nestedPrefetchByKey = new Map<
+    string,
+    Promise<PrefetchContinuationBundle | null>
+  >();
+  private readonly prefetchPool: PrefetchPriorityPool;
+  private readonly depth2Enabled: boolean;
   private readonly logger = new Logger(StoryService.name);
   private readonly cseApprovalThreshold: number;
 
@@ -93,8 +105,19 @@ export class StoryService {
       parseFloat(
         this.configService.get<string>('CSE_APPROVAL_THRESHOLD') || '0.9',
       ) || 0.9;
+    const conc = Number.parseInt(
+      this.configService.get<string>('STORY_PREFETCH_CONCURRENCY') ?? '2',
+      10,
+    );
+    this.prefetchPool = new PrefetchPriorityPool(
+      Number.isFinite(conc) && conc > 0 ? conc : 2,
+    );
+    this.depth2Enabled =
+      normalizeQuotedEnvValue(
+        this.configService.get<string>('STORY_PREFETCH_DEPTH2_ENABLED'),
+      ).toLowerCase() !== 'false';
     this.logger.log(
-      `StoryService initialized with CSE_APPROVAL_THRESHOLD=${this.cseApprovalThreshold}`,
+      `StoryService initialized with CSE_APPROVAL_THRESHOLD=${this.cseApprovalThreshold}, STORY_PREFETCH_DEPTH2_ENABLED=${this.depth2Enabled}`,
     );
   }
 
@@ -129,29 +152,25 @@ export class StoryService {
     });
 
     if (existingNodeCount > 0) {
+      const playheadNode = await this.resolvePlayheadNode(dto.sessionId);
       this.logger.debug(
-        `[startStory] Session ${dto.sessionId} already has ${existingNodeCount} nodes. Returning latest node.`,
+        `[startStory] Session ${dto.sessionId} already has ${existingNodeCount} nodes. Returning playhead node ${playheadNode?.id}.`,
       );
-      const latestNode = await this.prisma.storyNode.findFirst({
-        where: { sessionId: dto.sessionId },
-        orderBy: { id: 'desc' },
-        include: { choices: true },
-      });
 
-      if (!latestNode) {
+      if (!playheadNode) {
         throw new NotFoundException('Current story node not found.');
       }
 
       return {
         sessionId: session.id,
         node: {
-          id: latestNode.id,
-          textContent: latestNode.textContent,
-          imageUrl: latestNode.imageUrl,
-          audioUrl: latestNode.audioUrl,
-          confidenceScore: latestNode.confidenceScore,
-          isApproved: latestNode.isApproved,
-          choices: latestNode.choices.map((c) => ({
+          id: playheadNode.id,
+          textContent: playheadNode.textContent,
+          imageUrl: playheadNode.imageUrl,
+          audioUrl: playheadNode.audioUrl,
+          confidenceScore: playheadNode.confidenceScore,
+          isApproved: playheadNode.isApproved,
+          choices: playheadNode.choices.map((c) => ({
             id: c.id,
             text: c.text,
             behavioralTag: c.behavioralTag,
@@ -293,6 +312,9 @@ export class StoryService {
       include: { choices: true },
     });
 
+    const childCrossSessionPositiveRatio =
+      await this.loadChildCrossSessionChoiceBias(session.childId);
+
     this.sessionCache.set(session.id, {
       sessionId: session.id,
       childProfileId: session.childId,
@@ -308,6 +330,10 @@ export class StoryService {
       lastGeneratedImageUrl: this.sanitizeCachedImageUrlForStorageMode(
         imageUrl ?? '',
       ),
+      sessionPositiveTally: 0,
+      sessionNegativeTally: 0,
+      childCrossSessionPositiveRatio,
+      positiveChoiceStreak: 0,
     });
 
     const totalDuration = Date.now() - sessionStartTime;
@@ -379,6 +405,32 @@ export class StoryService {
     return this.startStory(userId, dto);
   }
 
+  /**
+   * After story nodes were copied from a prior session (same child + template),
+   * load sessionCache from the DB and warm continuation prefetches without LLM init.
+   */
+  async primeSessionCacheAfterStoryClone(sessionId: string): Promise<void> {
+    await this.rehydrateSession(sessionId);
+
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { status: true },
+    });
+    if (session?.status !== 'ACTIVE') {
+      return;
+    }
+
+    const playheadNode = await this.resolvePlayheadNode(sessionId);
+
+    if (playheadNode?.choices?.length) {
+      this.schedulePrefetchForChoices(
+        sessionId,
+        playheadNode.id,
+        playheadNode.choices,
+      );
+    }
+  }
+
   async continueStory(userId: string, dto: ContinueStoryDto) {
     const lockKey = dto.sessionId;
     const existing = this.continuationLocks.get(lockKey);
@@ -441,13 +493,9 @@ export class StoryService {
       throw new NotFoundException('Choice not found.');
     }
 
-    const latestNode = await this.prisma.storyNode.findFirst({
-      where: { sessionId: dto.sessionId },
-      orderBy: { id: 'desc' },
-      include: { choices: true },
-    });
+    const currentNode = await this.resolvePlayheadNode(dto.sessionId);
 
-    if (!latestNode || choice.nodeId !== latestNode.id) {
+    if (!currentNode || choice.nodeId !== currentNode.id) {
       throw new BadRequestException(
         'Choice does not belong to the current story node.',
       );
@@ -462,7 +510,6 @@ export class StoryService {
     // Get the session start time for duration calculation
     const sessionDuration = Date.now() - session.startedAt.getTime();
 
-    // Track current choice's behavior for back-to-back positive check
     const currentChoiceBehaviorTag = choice.behavioralTag;
 
     // Create interaction with comprehensive behavioral metrics
@@ -470,12 +517,12 @@ export class StoryService {
       data: {
         sessionId: dto.sessionId,
         choiceId: dto.choiceId,
-        nodeId: latestNode.id,
+        nodeId: currentNode.id,
         timeTakenMs: dto.timeTakenMs,
         choiceSequenceNum,
         behavioralPattern: choice.behavioralTag,
-        nodeConfidenceScore: latestNode.confidenceScore,
-        nodeApprovedByTherapist: latestNode.isApproved,
+        nodeConfidenceScore: currentNode.confidenceScore,
+        nodeApprovedByTherapist: currentNode.isApproved,
         turnNumber: state.turnCount,
         sessionDuration,
       },
@@ -484,17 +531,114 @@ export class StoryService {
     // Update behavioral analytics for the session
     await this.updateSessionBehavioralAnalytics(dto.sessionId);
 
+    if (choice.behavioralTag === 'Positive') {
+      state.sessionPositiveTally = (state.sessionPositiveTally ?? 0) + 1;
+    } else {
+      state.sessionNegativeTally = (state.sessionNegativeTally ?? 0) + 1;
+    }
+
     state.turnCount += 1;
 
     this.invalidateSiblingPrefetches(
       dto.sessionId,
-      latestNode.id,
+      currentNode.id,
       dto.choiceId,
     );
 
+    const interactionCountAfter = existingInteractionCount + 1;
+    const nodesOrderedAsc = await this.prisma.storyNode.findMany({
+      where: { sessionId: dto.sessionId },
+      orderBy: { id: 'asc' },
+      include: { choices: true },
+    });
+    const prefilledNext = nodesOrderedAsc[interactionCountAfter];
+
+    if (prefilledNext) {
+      this.logger.debug(
+        `[processContinuation:${dto.sessionId}] Using prefilled node ${prefilledNext.id} (linear cloned timeline)`,
+      );
+
+      if (!prefilledNext.choices?.length) {
+        await this.prisma.session.update({
+          where: { id: dto.sessionId },
+          data: { status: 'COMPLETED', endedAt: new Date() },
+        });
+        const finalAnalytics = await this.prisma.behavioralAnalytics.findUnique({
+          where: { sessionId: dto.sessionId },
+        });
+        if (finalAnalytics) {
+          await this.prisma.behavioralAnalytics.update({
+            where: { sessionId: dto.sessionId },
+            data: { updatedAt: new Date() },
+          });
+        }
+        this.sessionCache.delete(dto.sessionId);
+        this.clearPrefetchForSession(dto.sessionId);
+        const totalDuration = Date.now() - continuationStartTime;
+        this.logger.log(
+          `[processContinuation:${dto.sessionId}] Session completed (prefilled ending). Total duration: ${totalDuration}ms`,
+        );
+        return {
+          sessionId: dto.sessionId,
+          isEnding: true,
+          node: {
+            id: prefilledNext.id,
+            textContent: prefilledNext.textContent,
+            imageUrl: prefilledNext.imageUrl,
+            audioUrl: prefilledNext.audioUrl,
+            confidenceScore: prefilledNext.confidenceScore,
+            isApproved: prefilledNext.isApproved,
+            choices: [],
+          },
+        };
+      }
+
+      state.lastNodeText = prefilledNext.textContent;
+      state.lastGeneratedImageUrl = this.sanitizeCachedImageUrlForStorageMode(
+        prefilledNext.imageUrl ?? '',
+      );
+      this.applyPositiveChoiceStreakToState(state, currentChoiceBehaviorTag);
+      this.sessionCache.set(dto.sessionId, state);
+
+      this.promoteNestedPrefetchesIfPending(
+        dto.sessionId,
+        currentNode.id,
+        dto.choiceId,
+        prefilledNext,
+      );
+      this.schedulePrefetchForChoices(
+        dto.sessionId,
+        prefilledNext.id,
+        prefilledNext.choices,
+      );
+
+      const totalDuration = Date.now() - continuationStartTime;
+      this.logger.log(
+        `[processContinuation:${dto.sessionId}] Continuation complete (prefilled turn ${state.turnCount}). Total duration: ${totalDuration}ms`,
+      );
+
+      return {
+        sessionId: dto.sessionId,
+        isEnding: false,
+        node: {
+          id: prefilledNext.id,
+          textContent: prefilledNext.textContent,
+          imageUrl: prefilledNext.imageUrl,
+          audioUrl: prefilledNext.audioUrl,
+          confidenceScore: prefilledNext.confidenceScore,
+          isApproved: prefilledNext.isApproved,
+          choices: prefilledNext.choices.map((c) => ({
+            id: c.id,
+            text: c.text,
+            behavioralTag: c.behavioralTag,
+          })),
+        },
+      };
+    }
+
     const prefetchKey = this.makePrefetchKey(
       dto.sessionId,
-      latestNode.id,
+      currentNode.id,
       dto.choiceId,
     );
 
@@ -530,13 +674,13 @@ export class StoryService {
 
     if (hardLimitReached && !isEnding) {
       this.logger.log(
-        `[processContinuation:${dto.sessionId}] Hard turn limit reached (${state.turnCount}). Forcing story ending.`,
+        `[processContinuation:${dto.sessionId}] Hard turn limit reached (${state.turnCount}/${STORY_HARD_TURN_LIMIT}). Forcing story ending.`,
       );
     }
 
     if (backToBackPositive && !isEnding) {
       this.logger.log(
-        `[processContinuation:${dto.sessionId}] Back-to-back positive choices detected. Ending story at natural high point.`,
+        `[processContinuation:${dto.sessionId}] Positive choice streak reached ${STORY_POSITIVE_STREAK_TO_FORCE_END}. Ending story at natural high point.`,
       );
     }
 
@@ -607,7 +751,7 @@ export class StoryService {
       state.lastGeneratedImageUrl = this.sanitizeCachedImageUrlForStorageMode(
         imageUrl ?? '',
       );
-      state.lastChoiceBehaviorTag = currentChoiceBehaviorTag;
+      this.applyPositiveChoiceStreakToState(state, currentChoiceBehaviorTag);
       this.sessionCache.set(dto.sessionId, state);
 
       const totalDuration = Date.now() - continuationStartTime;
@@ -616,6 +760,12 @@ export class StoryService {
       );
 
       if (storyNode.choices?.length) {
+        this.promoteNestedPrefetchesIfPending(
+          dto.sessionId,
+          currentNode.id,
+          dto.choiceId,
+          storyNode,
+        );
         this.schedulePrefetchForChoices(
           dto.sessionId,
           storyNode.id,
@@ -799,10 +949,16 @@ export class StoryService {
   }
 
   private clearPrefetchForSession(sessionId: string): void {
-    const prefix = `${sessionId}:`;
+    const prefixColon = `${sessionId}:`;
+    const prefixBar = `${sessionId}|`;
     for (const key of [...this.prefetchByKey.keys()]) {
-      if (key.startsWith(prefix)) {
+      if (key.startsWith(prefixColon)) {
         this.prefetchByKey.delete(key);
+      }
+    }
+    for (const key of [...this.nestedPrefetchByKey.keys()]) {
+      if (key.startsWith(prefixBar)) {
+        this.nestedPrefetchByKey.delete(key);
       }
     }
   }
@@ -812,15 +968,177 @@ export class StoryService {
     parentNodeId: string,
     chosenChoiceId: string,
   ): void {
+    const branchPrefix = `${sessionId}:${parentNodeId}:`;
     const chosenKey = this.makePrefetchKey(
       sessionId,
       parentNodeId,
       chosenChoiceId,
     );
     for (const key of [...this.prefetchByKey.keys()]) {
-      if (key.startsWith(`${sessionId}:${parentNodeId}:`) && key !== chosenKey) {
+      if (key.startsWith(branchPrefix) && key !== chosenKey) {
+        const siblingChoiceId = key.slice(branchPrefix.length);
         this.prefetchByKey.delete(key);
+        this.clearNestedPrefetchesForRootBranch(
+          sessionId,
+          parentNodeId,
+          siblingChoiceId,
+        );
       }
+    }
+  }
+
+  /**
+   * Higher score runs first when prefetch concurrency is saturated.
+   * Boosts branches aligned with in-session majority and cross-session tendency.
+   */
+  private computePrefetchPriority(
+    choice: { behavioralTag: string | null },
+    state: SessionState | null | undefined,
+  ): number {
+    let p = 0;
+    if (!state) {
+      return p;
+    }
+    const pos = state.sessionPositiveTally ?? 0;
+    const neg = state.sessionNegativeTally ?? 0;
+    if (pos > neg && choice.behavioralTag === 'Positive') {
+      p += 100;
+    } else if (neg > pos && choice.behavioralTag === 'Negative') {
+      p += 100;
+    }
+    const cross = state.childCrossSessionPositiveRatio;
+    if (cross != null && choice.behavioralTag) {
+      if (cross >= 0.5 && choice.behavioralTag === 'Positive') {
+        p += 50;
+      }
+      if (cross < 0.5 && choice.behavioralTag === 'Negative') {
+        p += 50;
+      }
+    }
+    return p;
+  }
+
+  private makeNestedPrefetchKey(
+    sessionId: string,
+    rootNodeId: string,
+    rootChoiceId: string,
+    childChoiceIndex: number,
+  ): string {
+    return `${sessionId}|${rootNodeId}|${rootChoiceId}|${childChoiceIndex}`;
+  }
+
+  private clearNestedPrefetchesForRootBranch(
+    sessionId: string,
+    rootNodeId: string,
+    rootChoiceId: string,
+  ): void {
+    const prefix = `${sessionId}|${rootNodeId}|${rootChoiceId}|`;
+    for (const key of [...this.nestedPrefetchByKey.keys()]) {
+      if (key.startsWith(prefix)) {
+        this.nestedPrefetchByKey.delete(key);
+      }
+    }
+  }
+
+  private promoteNestedPrefetchesIfPending(
+    sessionId: string,
+    parentNodeId: string,
+    chosenRootChoiceId: string,
+    storyNode: {
+      id: string;
+      choices: { id: string; text: string; behavioralTag: string | null }[];
+    },
+  ): void {
+    storyNode.choices.forEach((c, i) => {
+      const nestedKey = this.makeNestedPrefetchKey(
+        sessionId,
+        parentNodeId,
+        chosenRootChoiceId,
+        i,
+      );
+      const pending = this.nestedPrefetchByKey.get(nestedKey);
+      if (!pending) {
+        return;
+      }
+      this.nestedPrefetchByKey.delete(nestedKey);
+      const prefetchKey = this.makePrefetchKey(sessionId, storyNode.id, c.id);
+      if (!this.prefetchByKey.has(prefetchKey)) {
+        this.prefetchByKey.set(prefetchKey, pending);
+        this.logger.debug(
+          `[prefetch:${sessionId}] Promoted depth-2 job to ${prefetchKey}`,
+        );
+      }
+    });
+  }
+
+  private scheduleNestedPrefetchesAfterDepth1(
+    sessionId: string,
+    rootNodeId: string,
+    rootChoice: { id: string; text: string; behavioralTag: string | null },
+    bundle: PrefetchContinuationBundle,
+    baseSnapshot: SessionState,
+  ): void {
+    if (!this.depth2Enabled || bundle.finalIsEnding) {
+      return;
+    }
+    const choices = bundle.llmResponse.choices;
+    if (!choices?.length) {
+      return;
+    }
+
+    const afterDepth1: SessionState = {
+      ...baseSnapshot,
+      turnCount: baseSnapshot.turnCount + 1,
+      lastNodeText: bundle.llmResponse.node_text,
+      lastGeneratedImageUrl: this.sanitizeCachedImageUrlForStorageMode(
+        bundle.imageUrl ?? '',
+      ),
+      lastChoiceBehaviorTag: rootChoice.behavioralTag,
+    };
+
+    const toPrefetch = choices.slice(0, 2);
+    for (let childIdx = 0; childIdx < toPrefetch.length; childIdx++) {
+      const c = toPrefetch[childIdx];
+      const nestedKey = this.makeNestedPrefetchKey(
+        sessionId,
+        rootNodeId,
+        rootChoice.id,
+        childIdx,
+      );
+      if (this.nestedPrefetchByKey.has(nestedKey)) {
+        continue;
+      }
+
+      const virtualChoice = {
+        text: c.choice_text,
+        behavioralTag: c.behavior_type as string | null,
+      };
+
+      const promise = (async (): Promise<PrefetchContinuationBundle | null> => {
+        const stateNow = this.sessionCache.get(sessionId);
+        const priority = this.computePrefetchPriority(virtualChoice, stateNow);
+        await this.prefetchPool.acquire(priority);
+        try {
+          const virtualState: SessionState = {
+            ...afterDepth1,
+            turnCount: afterDepth1.turnCount + 1,
+          };
+          return await this.generateContinuationContent(
+            sessionId,
+            virtualState,
+            virtualChoice,
+          );
+        } catch (error) {
+          this.logger.warn(
+            `[prefetch:${sessionId}] Depth-2 prefetch failed (${nestedKey}): ${error instanceof Error ? error.message : error}`,
+          );
+          return null;
+        } finally {
+          this.prefetchPool.release();
+        }
+      })();
+
+      this.nestedPrefetchByKey.set(nestedKey, promise);
     }
   }
 
@@ -836,12 +1154,39 @@ export class StoryService {
         continue;
       }
 
+      const baseSnapshot = this.sessionCache.get(sessionId);
+
       const promise = (async (): Promise<PrefetchContinuationBundle | null> => {
-        await this.acquirePrefetchSlot();
+        const stateNow = this.sessionCache.get(sessionId) ?? baseSnapshot;
+        const priority = this.computePrefetchPriority(choice, stateNow);
+        await this.prefetchPool.acquire(priority);
         try {
-          return await this.runPrefetchJob(sessionId, choice);
+          const bundle = await this.runPrefetchJob(
+            sessionId,
+            parentNodeId,
+            choice,
+            stateNow,
+          );
+          if (
+            bundle &&
+            this.depth2Enabled &&
+            !bundle.finalIsEnding &&
+            bundle.llmResponse.choices?.length
+          ) {
+            const snapshotForDepth2 = baseSnapshot ?? stateNow;
+            if (snapshotForDepth2) {
+              this.scheduleNestedPrefetchesAfterDepth1(
+                sessionId,
+                parentNodeId,
+                choice,
+                bundle,
+                snapshotForDepth2,
+              );
+            }
+          }
+          return bundle;
         } finally {
-          this.releasePrefetchSlot();
+          this.prefetchPool.release();
         }
       })();
 
@@ -849,32 +1194,13 @@ export class StoryService {
     }
   }
 
-  private async acquirePrefetchSlot(): Promise<void> {
-    if (this.prefetchActive < this.prefetchConcurrency) {
-      this.prefetchActive++;
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      this.prefetchWaitQueue.push(() => {
-        resolve();
-      });
-    });
-  }
-
-  private releasePrefetchSlot(): void {
-    const next = this.prefetchWaitQueue.shift();
-    if (next) {
-      next();
-    } else {
-      this.prefetchActive--;
-    }
-  }
-
   private async runPrefetchJob(
     sessionId: string,
+    _parentNodeId: string,
     choice: { id: string; text: string; behavioralTag: string | null },
+    stateHint: SessionState | null | undefined,
   ): Promise<PrefetchContinuationBundle | null> {
-    let state = this.sessionCache.get(sessionId);
+    let state = stateHint ?? this.sessionCache.get(sessionId);
     if (!state) {
       try {
         state = await this.rehydrateSession(sessionId);
@@ -901,20 +1227,44 @@ export class StoryService {
     }
   }
 
+  /** Share of Positive interactions in the last K records for this child (all sessions). */
+  private async loadChildCrossSessionChoiceBias(
+    childProfileId: string,
+  ): Promise<number | null> {
+    const interactions = await this.prisma.interaction.findMany({
+      where: { session: { childId: childProfileId } },
+      orderBy: { timestamp: 'desc' },
+      take: CROSS_SESSION_CHOICE_LOOKBACK,
+      select: { behavioralPattern: true },
+    });
+    if (interactions.length === 0) {
+      return null;
+    }
+    const positive = interactions.filter(
+      (i) => i.behavioralPattern === 'Positive',
+    ).length;
+    return positive / interactions.length;
+  }
+
   private async generateContinuationContent(
     sessionId: string,
     state: SessionState,
     choice: { text: string; behavioralTag: string | null },
   ): Promise<PrefetchContinuationBundle> {
     const currentChoiceBehaviorTag = choice.behavioralTag;
+    const positiveStreakIncludingThis =
+      currentChoiceBehaviorTag === 'Positive'
+        ? state.lastChoiceBehaviorTag === 'Positive'
+          ? (state.positiveChoiceStreak ?? 1) + 1
+          : 1
+        : 0;
     const backToBackPositive =
-      state.lastChoiceBehaviorTag === 'Positive' &&
-      currentChoiceBehaviorTag === 'Positive';
+      positiveStreakIncludingThis >= STORY_POSITIVE_STREAK_TO_FORCE_END;
     const hardLimitReached = state.turnCount >= STORY_HARD_TURN_LIMIT;
     const forceEndingThisTurn = hardLimitReached || backToBackPositive;
 
     this.logger.debug(
-      `[generateContinuation:${sessionId}] Processing choice: "${choice.text}" (turn ${state.turnCount}, behavior: ${currentChoiceBehaviorTag}, back-to-back positive: ${backToBackPositive})`,
+      `[generateContinuation:${sessionId}] Processing choice: "${choice.text}" (turn ${state.turnCount}, behavior: ${currentChoiceBehaviorTag}, positiveStreak=${positiveStreakIncludingThis}, forcePositiveStreakEnd=${backToBackPositive})`,
     );
 
     const systemPrompt = this.promptService.buildContinuePrompt({
@@ -1137,11 +1487,8 @@ export class StoryService {
   }
 
   private isS3Storage(): boolean {
-    return (
-      (this.configService.get<string>('STORAGE_TYPE') || 'local')
-        .toLowerCase()
-        .trim() === 's3'
-    );
+    const raw = this.configService.get<string>('STORAGE_TYPE');
+    return (normalizeQuotedEnvValue(raw) || 'local').toLowerCase() === 's3';
   }
 
   /**
@@ -1160,6 +1507,42 @@ export class StoryService {
       return trimmed;
     }
     return '';
+  }
+
+  private applyPositiveChoiceStreakToState(
+    state: SessionState,
+    currentChoiceBehaviorTag: string | null,
+  ): void {
+    if (currentChoiceBehaviorTag === 'Positive') {
+      if (state.lastChoiceBehaviorTag === 'Positive') {
+        state.positiveChoiceStreak = (state.positiveChoiceStreak ?? 1) + 1;
+      } else {
+        state.positiveChoiceStreak = 1;
+      }
+    } else {
+      state.positiveChoiceStreak = 0;
+    }
+    state.lastChoiceBehaviorTag = currentChoiceBehaviorTag;
+  }
+
+  /**
+   * Linear playhead: after k recorded interactions, the reader is on node index k
+   * in id-asc order. Matches append-only sessions and cloned full timelines.
+   */
+  private async resolvePlayheadNode(sessionId: string) {
+    const [nodes, interactionCount] = await Promise.all([
+      this.prisma.storyNode.findMany({
+        where: { sessionId },
+        orderBy: { id: 'asc' },
+        include: { choices: { orderBy: { id: 'asc' } } },
+      }),
+      this.prisma.interaction.count({ where: { sessionId } }),
+    ]);
+    if (nodes.length === 0) {
+      return null;
+    }
+    const idx = Math.min(interactionCount, nodes.length - 1);
+    return nodes[idx];
   }
 
   private async validateSessionAccess(
@@ -1198,14 +1581,31 @@ export class StoryService {
       throw new BadRequestException('Session is not active.');
     }
 
-    const latestNode = await this.prisma.storyNode.findFirst({
+    const sessionInteractions = await this.prisma.interaction.findMany({
       where: { sessionId },
-      orderBy: { id: 'desc' },
+      orderBy: { choiceSequenceNum: 'asc' },
+      select: { behavioralPattern: true },
     });
+    const sessionPositiveTally = sessionInteractions.filter(
+      (i) => i.behavioralPattern === 'Positive',
+    ).length;
+    const sessionNegativeTally =
+      sessionInteractions.length - sessionPositiveTally;
 
-    const nodeCount = await this.prisma.storyNode.count({
-      where: { sessionId },
-    });
+    let positiveChoiceStreak = 0;
+    for (let i = sessionInteractions.length - 1; i >= 0; i--) {
+      if (sessionInteractions[i].behavioralPattern === 'Positive') {
+        positiveChoiceStreak++;
+      } else {
+        break;
+      }
+    }
+
+    const interactionCount = sessionInteractions.length;
+    const playheadNode = await this.resolvePlayheadNode(sessionId);
+
+    const childCrossSessionPositiveRatio =
+      await this.loadChildCrossSessionChoiceBias(session.childId);
 
     // Derive child age from dateOfBirth if available, otherwise default to 7
     let childAge = 7;
@@ -1218,17 +1618,21 @@ export class StoryService {
       sessionId,
       childProfileId: session.childId,
       templateId: session.templateId,
-      turnCount: Math.max(0, nodeCount - 1),
+      turnCount: interactionCount,
       targetBehavior: session.template.targetBehavior,
       storySetting: session.template.setting,
       mainCharacter: session.template.mainCharacter,
       childAge,
-      lastNodeText: latestNode?.textContent ?? '',
+      lastNodeText: playheadNode?.textContent ?? '',
       visualStyle: session.template.visualStyle,
       characterAnchor: session.template.mainCharacter,
       lastGeneratedImageUrl: this.sanitizeCachedImageUrlForStorageMode(
-        latestNode?.imageUrl ?? '',
+        playheadNode?.imageUrl ?? '',
       ),
+      sessionPositiveTally,
+      sessionNegativeTally,
+      childCrossSessionPositiveRatio,
+      positiveChoiceStreak,
     };
 
     this.sessionCache.set(sessionId, state);
