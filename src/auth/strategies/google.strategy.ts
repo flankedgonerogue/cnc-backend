@@ -23,7 +23,12 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   async validate(
     accessToken: string,
     refreshToken: string,
-    profile: { emails?: Array<{ value?: string }> },
+    profile: {
+      emails?: Array<{ value?: string }>;
+      displayName?: string;
+      name?: { givenName?: string; familyName?: string };
+      photos?: Array<{ value?: string }>;
+    },
     done: VerifyCallback,
   ): Promise<any> {
     const email = profile.emails?.[0]?.value;
@@ -34,6 +39,10 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
 
     const { user, isNew } = await this.authService.validateOAuthUserWithStatus({
       email,
+      displayName: profile.displayName,
+      firstName: profile.name?.givenName,
+      lastName: profile.name?.familyName,
+      avatarUrl: profile.photos?.[0]?.value,
     });
 
     done(null, { ...user, isNew });

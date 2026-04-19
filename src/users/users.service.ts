@@ -1,20 +1,36 @@
 import {
   Injectable,
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { Role, User as PrismaUser } from '../generated/prisma/client';
+import {
+  GuardianChildPairingStatus,
+  Role,
+  User as PrismaUser,
+} from '../generated/prisma/client';
 import { User } from './user.entity';
 import { UpdateUserInput } from './dto/update-user.input';
 import { CreateChildInput } from './dto/create-child.input';
+import { EmailService } from '../email/email.service';
 import * as bcrypt from 'bcrypt';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { promisify } from 'node:util';
+
+const randomBytesAsync = promisify(randomBytes);
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  private readonly pairingTokenExpirationHours = 24;
+
+  constructor(
+    private prisma: PrismaService,
+    private readonly configService: ConfigService,
+    private readonly emailService: EmailService,
+  ) {}
 
   private mapToUserEntity(
     user: PrismaUser & {
@@ -218,27 +234,13 @@ export class UsersService {
     return this.mapToUserEntity(updated);
   }
 
-  async initializeRole(userId: string, role: Role): Promise<User> {
+  async initializeRole(
+    userId: string,
+    role: Role,
+    therapistEmail?: string,
+  ): Promise<User> {
     if (role === Role.THERAPIST || role === Role.ADMIN) {
       throw new Error('Therapist and admin roles cannot be assigned here.');
-    }
-
-    const updated = await this.prisma.user.updateMany({
-      where: { id: userId, role: null },
-      data: { role },
-    });
-
-    if (updated.count === 0) {
-      const existing = await this.prisma.user.findUnique({
-        where: { id: userId },
-      });
-      if (!existing) {
-        throw new Error('User not found');
-      }
-      if (existing.role) {
-        throw new ConflictException('Role has already been set.');
-      }
-      throw new Error('Unable to set role.');
     }
 
     const user = await this.prisma.user.findUnique({
@@ -249,11 +251,68 @@ export class UsersService {
         childProfile: true,
       },
     });
+
     if (!user) {
-      throw new Error('User not found');
+      throw new NotFoundException('User not found');
+    }
+    if (user.role) {
+      throw new ConflictException('Role has already been set.');
     }
 
-    return this.mapToUserEntity(user);
+    if (role === Role.CHILD) {
+      if (!therapistEmail) {
+        throw new BadRequestException(
+          'therapistEmail is required when setting role to CHILD.',
+        );
+      }
+
+      const therapistUser = await this.prisma.user.findFirst({
+        where: { email: therapistEmail, deletedAt: null },
+        include: { therapistProfile: true },
+      });
+
+      if (!therapistUser || !therapistUser.therapistProfile) {
+        throw new NotFoundException(
+          `Therapist with email ${therapistEmail} not found`,
+        );
+      }
+
+      const updatedChild = await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          role,
+          childProfile: {
+            create: {
+              therapistId: therapistUser.therapistProfile.id,
+            },
+          },
+        },
+        include: {
+          therapistProfile: true,
+          guardianProfile: true,
+          childProfile: true,
+        },
+      });
+
+      return this.mapToUserEntity(updatedChild);
+    }
+
+    const updatedGuardian = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        role,
+        guardianProfile: {
+          create: {},
+        },
+      },
+      include: {
+        therapistProfile: true,
+        guardianProfile: true,
+        childProfile: true,
+      },
+    });
+
+    return this.mapToUserEntity(updatedGuardian);
   }
 
   async createChildForGuardian(
@@ -262,20 +321,19 @@ export class UsersService {
   ): Promise<User> {
     const guardian = await this.prisma.guardianProfile.findUnique({
       where: { userId: guardianUserId },
-      include: { child: true },
     });
     if (!guardian) {
       throw new ForbiddenException('Guardian profile not found.');
     }
-    if (guardian.child) {
-      throw new ConflictException('Guardian already has an assigned child.');
-    }
 
-    const therapist = await this.prisma.therapistProfile.findUnique({
-      where: { id: input.therapistId },
+    const therapistUser = await this.prisma.user.findFirst({
+      where: { email: input.therapistEmail, deletedAt: null },
+      include: { therapistProfile: true },
     });
-    if (!therapist) {
-      throw new NotFoundException('Therapist not found.');
+    if (!therapistUser || !therapistUser.therapistProfile) {
+      throw new NotFoundException(
+        `Therapist with email ${input.therapistEmail} not found.`,
+      );
     }
 
     const existing = await this.prisma.user.findFirst({
@@ -302,7 +360,7 @@ export class UsersService {
             : undefined,
         childProfile: {
           create: {
-            therapistId: input.therapistId,
+            therapistId: therapistUser.therapistProfile.id,
             guardianId: guardian.id,
           },
         },
@@ -317,8 +375,8 @@ export class UsersService {
     return this.mapToUserEntity(user);
   }
 
-  async findChildByGuardian(guardianUserId: string): Promise<User | undefined> {
-    const user = await this.prisma.user.findFirst({
+  async findChildrenByGuardian(guardianUserId: string): Promise<User[]> {
+    const users = await this.prisma.user.findMany({
       where: {
         deletedAt: null,
         childProfile: {
@@ -331,7 +389,104 @@ export class UsersService {
         childProfile: true,
       },
     });
-    return user ? this.mapToUserEntity(user) : undefined;
+    return users.map((user) => this.mapToUserEntity(user));
+  }
+
+  async requestPairingForExistingChild(
+    guardianUserId: string,
+    childEmail: string,
+  ): Promise<{ success: boolean; message: string }> {
+    const guardian = await this.prisma.guardianProfile.findUnique({
+      where: { userId: guardianUserId },
+    });
+    if (!guardian) {
+      throw new ForbiddenException('Guardian profile not found.');
+    }
+
+    const childUser = await this.prisma.user.findFirst({
+      where: { email: childEmail, deletedAt: null, role: Role.CHILD },
+      include: { childProfile: true },
+    });
+    if (!childUser || !childUser.childProfile) {
+      throw new NotFoundException(
+        `Child with email ${childEmail} was not found.`,
+      );
+    }
+
+    if (childUser.childProfile.guardianId === guardian.id) {
+      throw new ConflictException('Child is already linked to this guardian.');
+    }
+
+    const rawToken = (await randomBytesAsync(32)).toString('hex');
+    const tokenHash = this.hashPairingToken(rawToken);
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + this.pairingTokenExpirationHours);
+
+    await this.prisma.guardianChildPairingRequest.create({
+      data: {
+        guardianProfileId: guardian.id,
+        childUserId: childUser.id,
+        tokenHash,
+        expiresAt,
+        status: GuardianChildPairingStatus.PENDING,
+      },
+    });
+
+    const confirmUrl = this.buildPairingConfirmUrl(rawToken);
+    await this.emailService.sendGuardianPairingEmail(
+      childUser.email,
+      confirmUrl,
+      expiresAt,
+    );
+
+    return {
+      success: true,
+      message: `Pairing request sent to ${childUser.email}.`,
+    };
+  }
+
+  async confirmPairingToken(token: string): Promise<{ ok: boolean }> {
+    const tokenHash = this.hashPairingToken(token);
+    const request = await this.prisma.guardianChildPairingRequest.findUnique({
+      where: { tokenHash },
+      include: {
+        childUser: {
+          include: { childProfile: true },
+        },
+      },
+    });
+
+    if (!request || request.status !== GuardianChildPairingStatus.PENDING) {
+      return { ok: false };
+    }
+
+    if (request.expiresAt < new Date()) {
+      await this.prisma.guardianChildPairingRequest.update({
+        where: { id: request.id },
+        data: { status: GuardianChildPairingStatus.EXPIRED },
+      });
+      return { ok: false };
+    }
+
+    if (!request.childUser.childProfile) {
+      return { ok: false };
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.childProfile.update({
+        where: { userId: request.childUserId },
+        data: { guardianId: request.guardianProfileId },
+      }),
+      this.prisma.guardianChildPairingRequest.update({
+        where: { id: request.id },
+        data: {
+          status: GuardianChildPairingStatus.CONSUMED,
+          consumedAt: new Date(),
+        },
+      }),
+    ]);
+
+    return { ok: true };
   }
 
   async findChildrenByTherapist(therapistUserId: string): Promise<User[]> {
@@ -379,6 +534,33 @@ export class UsersService {
    */
   hashResetToken(token: string): string {
     return createHash('sha256').update(token, 'utf8').digest('hex');
+  }
+
+  hashPairingToken(token: string): string {
+    return createHash('sha256').update(token, 'utf8').digest('hex');
+  }
+
+  buildPairingConfirmUrl(token: string): string {
+    const backendUrl =
+      this.configService.get<string>('BACKEND_URL') ||
+      `http://localhost:${this.configService.get<string>('PORT', '3000')}`;
+    const confirmUrl = new URL('/users/pairing/confirm', backendUrl);
+    confirmUrl.searchParams.set('token', token);
+    return confirmUrl.toString();
+  }
+
+  getPairingRedirectUrl(success: boolean): string {
+    if (success) {
+      return this.configService.get<string>(
+        'FRONTEND_SUCCESSFUL_PAIRING_URL',
+        this.configService.get<string>('FRONTEND_URL', 'http://localhost:3001'),
+      );
+    }
+
+    return this.configService.get<string>(
+      'FRONTEND_ERROR_URL',
+      this.configService.get<string>('FRONTEND_URL', 'http://localhost:3001'),
+    );
   }
 
   /**

@@ -117,3 +117,12 @@ export class User {
   @Field(() => ChildProfile, { nullable: true })
   childProfile?: ChildProfile;
 }
+
+@ObjectType()
+export class PairingRequestResponse {
+  @Field()
+  success: boolean;
+
+  @Field()
+  message: string;
+}

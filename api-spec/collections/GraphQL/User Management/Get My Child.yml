@@ -1,5 +1,5 @@
 info:
-  name: Get My Child
+  name: Get My Children (Guardian)
   type: graphql
   seq: 9
 
@@ -8,8 +8,8 @@ graphql:
   url: "{{BASE_URL}}/graphql"
   body:
     query: |
-      query GetMyChild {
-        myChild {
+      query GetMyChildrenForGuardian {
+        myChildrenForGuardian {
           id
           email
           role

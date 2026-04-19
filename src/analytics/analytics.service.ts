@@ -12,6 +12,9 @@ import type {
   ChildTrendPoint,
   DashboardComparison,
   DashboardSummaryMetrics,
+  GuardianChildAnalyticsPayload,
+  GuardianChildSnapshot,
+  GuardianChildTrendPoint,
   TemplateDashboardRow,
   TherapistDashboardAnalyticsPayload,
   AnalyticsPeriodWindow,
@@ -149,6 +152,108 @@ export class AnalyticsService {
       byChild,
       byTemplate,
     };
+  }
+
+  async getGuardianChildAnalytics(
+    guardianUserId: string,
+    options: {
+      period: DashboardPeriod;
+      comparePrevious: boolean;
+      childProfileId?: string;
+    },
+  ): Promise<GuardianChildAnalyticsPayload> {
+    const guardianProfile = await this.prisma.guardianProfile.findUnique({
+      where: { userId: guardianUserId },
+      select: { id: true },
+    });
+    if (!guardianProfile) {
+      throw new NotFoundException('Guardian profile not found.');
+    }
+
+    if (options.childProfileId) {
+      const child = await this.prisma.childProfile.findFirst({
+        where: {
+          id: options.childProfileId,
+          guardianId: guardianProfile.id,
+        },
+        select: { id: true },
+      });
+      if (!child) {
+        throw new ForbiddenException(
+          'This child profile is not linked to your guardian account.',
+        );
+      }
+    }
+
+    const { current, previous } = this.getTimeWindows(options.period);
+    const currentRows = await this.fetchGuardianAnalyticsRows(
+      guardianProfile.id,
+      current,
+      options.childProfileId,
+    );
+    const previousRows = options.comparePrevious
+      ? await this.fetchGuardianAnalyticsRows(
+          guardianProfile.id,
+          previous,
+          options.childProfileId,
+        )
+      : [];
+
+    return {
+      period: options.period,
+      currentWindow: current,
+      previousWindow: options.comparePrevious ? previous : null,
+      children: this.buildGuardianChildren(
+        currentRows,
+        previousRows,
+        options.comparePrevious,
+        options.period,
+        current,
+      ),
+    };
+  }
+
+  private async fetchGuardianAnalyticsRows(
+    guardianProfileId: string,
+    window: AnalyticsPeriodWindow,
+    childProfileId?: string,
+  ): Promise<AnalyticsRow[]> {
+    const rows = await this.prisma.behavioralAnalytics.findMany({
+      where: {
+        session: {
+          child: {
+            guardianId: guardianProfileId,
+          },
+          startedAt: {
+            gte: window.start,
+            lt: window.end,
+          },
+          ...(childProfileId ? { childId: childProfileId } : {}),
+        },
+      },
+      include: {
+        session: {
+          include: {
+            child: {
+              include: {
+                user: {
+                  select: { firstName: true, lastName: true },
+                },
+              },
+            },
+            template: {
+              select: {
+                id: true,
+                targetBehavior: true,
+                setting: true,
+                mainCharacter: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    return rows as AnalyticsRow[];
   }
 
   private async fetchAnalyticsRows(
@@ -383,6 +488,131 @@ export class AnalyticsService {
 
     result.sort((a, b) => b.sessionCount - a.sessionCount);
     return result;
+  }
+
+  private buildGuardianChildren(
+    currentRows: AnalyticsRow[],
+    previousRows: AnalyticsRow[],
+    comparePrevious: boolean,
+    period: DashboardPeriod,
+    currentWindow: AnalyticsPeriodWindow,
+  ): GuardianChildSnapshot[] {
+    const prevByChild = new Map<string, AnalyticsRow[]>();
+    for (const row of previousRows) {
+      const list = prevByChild.get(row.session.childId) ?? [];
+      list.push(row);
+      prevByChild.set(row.session.childId, list);
+    }
+
+    const byChild = new Map<string, AnalyticsRow[]>();
+    for (const row of currentRows) {
+      const list = byChild.get(row.session.childId) ?? [];
+      list.push(row);
+      byChild.set(row.session.childId, list);
+    }
+
+    const children: GuardianChildSnapshot[] = [];
+    for (const [childProfileId, rows] of byChild) {
+      const summary = this.summarizeRows(rows);
+      const previousSummary =
+        comparePrevious && prevByChild.get(childProfileId)?.length
+          ? this.summarizeRows(prevByChild.get(childProfileId)!)
+          : null;
+      const completedCount = rows.filter(
+        (row) => row.session.status === SessionStatus.COMPLETED,
+      ).length;
+      const completionRate = rows.length > 0 ? completedCount / rows.length : 0;
+      const engagementDeltaPercent = previousSummary
+        ? this.deltaPercent(
+            summary.avgEngagementScore,
+            previousSummary.avgEngagementScore,
+          )
+        : null;
+      const user = rows[0]?.session.child.user;
+      const displayName =
+        [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() ||
+        null;
+      const insight = this.toGuardianInsight(
+        summary.avgEngagementScore,
+        completionRate,
+        engagementDeltaPercent,
+      );
+
+      children.push({
+        childProfileId,
+        displayName,
+        sessionCount: summary.sessionCount,
+        completionRate,
+        positiveChoiceRatio: summary.weightedPositiveChoiceRatio,
+        engagementDeltaPercent,
+        statusLabel: insight.statusLabel,
+        parentSummary: insight.parentSummary,
+        trend: this.buildGuardianTrend(rows, period, currentWindow),
+      });
+    }
+
+    children.sort((a, b) => b.sessionCount - a.sessionCount);
+    return children;
+  }
+
+  private buildGuardianTrend(
+    rows: AnalyticsRow[],
+    period: DashboardPeriod,
+    window: AnalyticsPeriodWindow,
+  ): GuardianChildTrendPoint[] {
+    const bucketCount = period === DashboardPeriod.WEEK ? 7 : 4;
+    const duration = window.end.getTime() - window.start.getTime();
+    const step = duration / bucketCount;
+    const points: GuardianChildTrendPoint[] = [];
+
+    for (let i = 0; i < bucketCount; i += 1) {
+      const bucketStart = new Date(window.start.getTime() + i * step);
+      const bucketEnd = new Date(window.start.getTime() + (i + 1) * step);
+      const inBucket = rows.filter((row) => {
+        const timestamp = row.session.startedAt.getTime();
+        return timestamp >= bucketStart.getTime() && timestamp < bucketEnd.getTime();
+      });
+      const summary = this.summarizeRows(inBucket);
+      points.push({
+        bucketStart,
+        bucketEnd,
+        engagementScore: summary.avgEngagementScore,
+      });
+    }
+
+    return points;
+  }
+
+  private toGuardianInsight(
+    avgEngagementScore: number,
+    completionRate: number,
+    engagementDeltaPercent: number | null,
+  ): { statusLabel: string; parentSummary: string } {
+    if (
+      avgEngagementScore >= 0.75 &&
+      completionRate >= 0.7 &&
+      (engagementDeltaPercent === null || engagementDeltaPercent >= -5)
+    ) {
+      return {
+        statusLabel: 'improving',
+        parentSummary:
+          'Your child is showing strong engagement and generally completes sessions.',
+      };
+    }
+
+    if (avgEngagementScore >= 0.5 && completionRate >= 0.4) {
+      return {
+        statusLabel: 'steady',
+        parentSummary:
+          'Progress is steady. Keep routines consistent and celebrate completed sessions.',
+      };
+    }
+
+    return {
+      statusLabel: 'needsAttention',
+      parentSummary:
+        'Progress appears inconsistent right now. Consider checking in with your therapist for guidance.',
+    };
   }
 
   private deltaPercent(current: number, previous: number): number | null {

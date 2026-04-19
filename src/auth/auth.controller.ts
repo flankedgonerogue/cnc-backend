@@ -7,8 +7,10 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Res,
 } from '@nestjs/common';
-import { Request as ExpressRequest } from 'express';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
+import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -27,7 +29,10 @@ type GoogleAuthRequest = ExpressRequest & { user: GoogleAuthUser };
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(
+    private authService: AuthService,
+    private configService: ConfigService,
+  ) {}
 
   /**
    * Register a new user with email and password
@@ -81,19 +86,35 @@ export class AuthController {
    */
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
-  googleAuthCallback(@Request() req: GoogleAuthRequest) {
+  googleAuthCallback(
+    @Request() req: GoogleAuthRequest,
+    @Res() res: ExpressResponse,
+  ) {
     // GoogleAuthGuard validates OAuth token and attaches user to request
     const { isNew, ...user } = req.user;
     const result = this.authService.login(user);
 
-    // In production, you might want to redirect to your frontend with the token
-    // For example: res.redirect(`${frontendUrl}/auth/callback?token=${result.access_token}`)
-    return {
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL');
+
+    // Default behavior for browser-based OAuth: redirect back to frontend.
+    // We use the URL fragment to avoid putting tokens in server logs/query params.
+    if (frontendUrl) {
+      const callbackUrl = new URL('/auth/callback', frontendUrl);
+      callbackUrl.hash = new URLSearchParams({
+        access_token: result.access_token,
+        isNew: String(!!isNew),
+        roleRequired: String(!user.role),
+      }).toString();
+      return res.redirect(callbackUrl.toString());
+    }
+
+    // Fallback for API clients / missing FRONTEND_URL.
+    return res.json({
       ...result,
       isNew: !!isNew,
       roleRequired: !user.role,
       message: 'Google authentication successful',
-    };
+    });
   }
 
   /**
@@ -108,7 +129,11 @@ export class AuthController {
     @Request() req: AuthRequest,
     @Body() setRoleDto: SetRoleDto,
   ) {
-    return this.authService.initializeRole(req.user.id, setRoleDto.role);
+    return this.authService.initializeRole(
+      req.user.id,
+      setRoleDto.role,
+      setRoleDto.therapistEmail,
+    );
   }
 
   /**

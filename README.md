@@ -52,6 +52,10 @@ This service provides:
 
    # Server (optional)
    PORT=3000
+   BACKEND_URL=http://localhost:3000
+   FRONTEND_URL=http://localhost:3001
+   FRONTEND_SUCCESSFUL_PAIRING_URL=http://localhost:3001/pairing/success
+   FRONTEND_ERROR_URL=http://localhost:3001/pairing/error
    ```
 
 4. **Run migrations**
@@ -83,6 +87,15 @@ The server runs at `http://localhost:3000`.
 | POST | `/auth/password-reset/confirm` | Set new password with token | ❌ |
 
 GraphQL equivalents (`register`, `login`, `profile`, `verifyToken`, `setOAuthRole`, password-reset mutations) are documented in `docs/auth/endpoints.md`.
+
+### Guardian-Child Pairing (GraphQL + REST callback)
+
+- `addChild(createChildInput)` creates a new child account for a guardian and now requires `therapistEmail`.
+- `myChildrenForGuardian` lists all children linked to the current guardian.
+- `requestChildPairing(requestChildPairingInput)` sends a pairing email to an existing child account.
+- Pairing confirmation callback: `GET /users/pairing/confirm?token=...` redirects to:
+  - `FRONTEND_SUCCESSFUL_PAIRING_URL` on success
+  - `FRONTEND_ERROR_URL` on failure
 
 ### Templates (GraphQL)
 

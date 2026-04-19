@@ -1,0 +1,31 @@
+info:
+  name: Request Child Pairing
+  type: graphql
+  seq: 10
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      mutation RequestChildPairing($input: RequestChildPairingInput!) {
+        requestChildPairing(requestChildPairingInput: $input) {
+          success
+          message
+        }
+      }
+    variables: |
+      {
+        "input": {
+          "childEmail": "existing-child@example.com"
+        }
+      }
+  auth:
+    type: bearer
+    token: "{{ACCESS_TOKEN_GUARDIAN}}"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

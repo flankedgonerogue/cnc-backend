@@ -7,7 +7,10 @@ const logger = new Logger('ConfigModule');
 const PUBLIC_VALUE_KEYS: readonly string[] = [
   'NODE_ENV',
   'PORT',
+  'BACKEND_URL',
   'FRONTEND_URL',
+  'FRONTEND_SUCCESSFUL_PAIRING_URL',
+  'FRONTEND_ERROR_URL',
   'JWT_EXPIRES_IN',
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CALLBACK_URL',

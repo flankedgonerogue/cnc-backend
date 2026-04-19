@@ -8,7 +8,10 @@ This directory contains the current, actively maintained guides for the backend 
   Get the API running locally, configure environment variables, and smoke‑test the auth flows.
 
 - **Auth + Admin API Guide** (`auth/endpoints.md`)
-  Authentication (REST and GraphQL): register, login, OAuth, password reset, JWT verification; admin therapist provisioning and stats.
+  Authentication (REST and GraphQL): register, login, OAuth, password reset, JWT verification; admin therapist provisioning and stats; guardian-child pairing flows.
+
+- **Frontend Pairing Integration Guide** (`guardian-child-pairing-frontend.md`)
+  Implementation notes for frontend teams integrating multi-child guardians, child creation, existing-child email pairing callbacks, and guardian per-child analytics.
 
 - **Template API Guide** (`template/endpoints.md`)
   GraphQL reference for therapist story templates, including `visualStyle` and ownership rules.

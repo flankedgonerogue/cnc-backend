@@ -76,6 +76,10 @@ export class AuthService {
 
   async validateOAuthUserWithStatus(profile: {
     email: string;
+    firstName?: string;
+    lastName?: string;
+    displayName?: string;
+    avatarUrl?: string;
   }): Promise<{ user: User; isNew: boolean }> {
     let user = await this.usersService.findByEmail(profile.email, {
       includeDeleted: true,
@@ -88,12 +92,6 @@ export class AuthService {
         );
       }
 
-      if (user.passwordHash) {
-        throw new UnauthorizedException(
-          'This email is already registered with a password. Please use email and password to sign in.',
-        );
-      }
-
       return { user, isNew: false };
     }
 
@@ -101,12 +99,31 @@ export class AuthService {
       email: profile.email,
     });
 
+    const hasProfileDetails = Boolean(
+      profile.displayName ||
+        profile.firstName ||
+        profile.lastName ||
+        profile.avatarUrl,
+    );
+    if (hasProfileDetails) {
+      user = await this.usersService.updateUser(user.id, {
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        displayName:
+          profile.displayName ||
+          [profile.firstName, profile.lastName].filter(Boolean).join(' ') ||
+          undefined,
+        avatarUrl: profile.avatarUrl,
+      });
+    }
+
     return { user, isNew: true };
   }
 
   async initializeRole(
     userId: string,
     role: Role,
+    therapistEmail?: string,
   ): Promise<Omit<User, 'passwordHash'>> {
     if (role === Role.THERAPIST || role === Role.ADMIN) {
       throw new UnauthorizedException(
@@ -114,7 +131,11 @@ export class AuthService {
       );
     }
 
-    const user = await this.usersService.initializeRole(userId, role);
+    const user = await this.usersService.initializeRole(
+      userId,
+      role,
+      therapistEmail,
+    );
     return this.usersService.sanitizeUser(user);
   }
 

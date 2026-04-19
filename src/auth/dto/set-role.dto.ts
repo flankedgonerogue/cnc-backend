@@ -1,5 +1,5 @@
 import { InputType, Field } from '@nestjs/graphql';
-import { IsIn, IsNotEmpty } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, ValidateIf } from 'class-validator';
 import { Role } from '../../generated/prisma/client';
 
 @InputType()
@@ -10,4 +10,10 @@ export class SetRoleDto {
   })
   @IsNotEmpty()
   role: Role;
+
+  @Field(() => String, { nullable: true })
+  @ValidateIf((o: SetRoleDto) => o.role === Role.CHILD)
+  @IsNotEmpty({ message: 'therapistEmail is required when role is CHILD' })
+  @IsEmail({}, { message: 'therapistEmail must be a valid email address' })
+  therapistEmail?: string;
 }

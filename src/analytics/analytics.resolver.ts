@@ -6,7 +6,10 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../generated/prisma/client';
 import { AnalyticsService } from './analytics.service';
 import { DashboardPeriod } from './enums/dashboard-period.enum';
-import { TherapistDashboardAnalyticsPayload } from './entities/dashboard.entity';
+import {
+  GuardianChildAnalyticsPayload,
+  TherapistDashboardAnalyticsPayload,
+} from './entities/dashboard.entity';
 
 @Resolver()
 export class AnalyticsResolver {
@@ -35,6 +38,29 @@ export class AnalyticsResolver {
       comparePrevious: comparePrevious ?? false,
       childProfileId: childProfileId ?? undefined,
       templateId: templateId ?? undefined,
+    });
+  }
+
+  @Query(() => GuardianChildAnalyticsPayload, {
+    name: 'guardianChildAnalytics',
+    description:
+      'Parent-friendly per-child analytics for the authenticated guardian.',
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.GUARDIAN)
+  async guardianChildAnalytics(
+    @Args('period', { type: () => DashboardPeriod }) period: DashboardPeriod,
+    @Args('comparePrevious', { type: () => Boolean, nullable: true })
+    comparePrevious: boolean | null,
+    @Args('childProfileId', { type: () => String, nullable: true })
+    childProfileId: string | undefined,
+    @Context() context: { req: { user: { id: string } } },
+  ): Promise<GuardianChildAnalyticsPayload> {
+    const userId = context.req.user.id;
+    return this.analyticsService.getGuardianChildAnalytics(userId, {
+      period,
+      comparePrevious: comparePrevious ?? false,
+      childProfileId: childProfileId ?? undefined,
     });
   }
 }

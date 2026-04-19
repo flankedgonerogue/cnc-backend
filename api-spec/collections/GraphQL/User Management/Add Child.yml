@@ -28,7 +28,7 @@ graphql:
         "input": {
           "email": "child@example.com",
           "password": "test123456",
-          "therapistId": "{{THERAPIST_PROFILE_ID}}",
+          "therapistEmail": "{{THERAPIST_EMAIL}}",
           "firstName": "Test",
           "lastName": "Child"
         }

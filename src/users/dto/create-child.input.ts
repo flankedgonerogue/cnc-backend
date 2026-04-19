@@ -21,9 +21,9 @@ export class CreateChildInput {
   password: string;
 
   @Field()
-  @IsString()
+  @IsEmail()
   @IsNotEmpty()
-  therapistId: string;
+  therapistEmail: string;
 
   @Field({ nullable: true })
   @IsOptional()

@@ -1,0 +1,61 @@
+info:
+  name: Guardian Child Analytics
+  type: graphql
+  seq: 2
+
+graphql:
+  method: POST
+  url: "{{BASE_URL}}/graphql"
+  body:
+    query: |
+      query GuardianChildAnalytics(
+        $period: DashboardPeriod!
+        $comparePrevious: Boolean
+        $childProfileId: String
+      ) {
+        guardianChildAnalytics(
+          period: $period
+          comparePrevious: $comparePrevious
+          childProfileId: $childProfileId
+        ) {
+          period
+          currentWindow {
+            start
+            end
+          }
+          previousWindow {
+            start
+            end
+          }
+          children {
+            childProfileId
+            displayName
+            sessionCount
+            completionRate
+            positiveChoiceRatio
+            engagementDeltaPercent
+            statusLabel
+            parentSummary
+            trend {
+              bucketStart
+              bucketEnd
+              engagementScore
+            }
+          }
+        }
+      }
+    variables: |
+      {
+        "period": "MONTH",
+        "comparePrevious": true,
+        "childProfileId": null
+      }
+  auth:
+    type: bearer
+    token: "{{ACCESS_TOKEN_GUARDIAN}}"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

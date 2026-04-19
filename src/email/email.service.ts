@@ -117,6 +117,33 @@ export class EmailService {
     }
   }
 
+  async sendGuardianPairingEmail(
+    email: string,
+    pairingUrl: string,
+    expiresAt: Date,
+  ): Promise<void> {
+    const htmlContent = this.getGuardianPairingEmailTemplate(pairingUrl, expiresAt);
+    const textContent = this.getGuardianPairingEmailText(pairingUrl, expiresAt);
+
+    try {
+      await this.transporter.sendMail({
+        from: this.fromEmail,
+        to: email,
+        subject: 'Guardian Pairing Request - Chronicles N Conversations',
+        html: htmlContent,
+        text: textContent,
+      });
+
+      this.logger.log(`Guardian pairing email sent to ${email}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to send guardian pairing email to ${email}:`,
+        error,
+      );
+      throw error;
+    }
+  }
+
   private getPasswordResetEmailTemplate(resetUrl: string): string {
     return `
 <!DOCTYPE html>
@@ -441,6 +468,47 @@ Please verify your email address to complete your registration and start creatin
 ${verificationUrl}
 
 © 2026 Chronicles N Conversations
+    `;
+  }
+
+  private getGuardianPairingEmailTemplate(
+    pairingUrl: string,
+    expiresAt: Date,
+  ): string {
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guardian Pairing Request - Chronicles N Conversations</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937;">
+  <h2>Guardian Pairing Request</h2>
+  <p>A guardian has requested to pair with this child profile.</p>
+  <p>To approve the pairing, click this link:</p>
+  <p><a href="${pairingUrl}">${pairingUrl}</a></p>
+  <p>This link expires on <strong>${expiresAt.toISOString()}</strong>.</p>
+  <p>If you did not expect this, you can safely ignore this email.</p>
+</body>
+</html>
+    `;
+  }
+
+  private getGuardianPairingEmailText(
+    pairingUrl: string,
+    expiresAt: Date,
+  ): string {
+    return `
+Guardian Pairing Request - Chronicles N Conversations
+
+A guardian has requested to pair with this child profile.
+
+Approve pairing:
+${pairingUrl}
+
+This link expires on ${expiresAt.toISOString()}.
+If you did not expect this, ignore this message.
     `;
   }
 

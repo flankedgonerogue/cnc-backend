@@ -60,7 +60,11 @@ export class AuthResolver {
     @Context() context: Record<string, any>,
   ) {
     const userId = context.req.user.id as string;
-    const user = await this.authService.initializeRole(userId, setRoleDto.role);
+    const user = await this.authService.initializeRole(
+      userId,
+      setRoleDto.role,
+      setRoleDto.therapistEmail,
+    );
     return this.mapUserToAuth(user);
   }
 

@@ -42,6 +42,7 @@ model User {
   therapistProfile TherapistProfile?
   guardianProfile  GuardianProfile?
   childProfile     ChildProfile?
+  pairingRequests  GuardianChildPairingRequest[]
   actionLogs       ActionLog[]       @relation("AdminActionLogs")
   targetActionLogs ActionLog[]       @relation("TargetUserActionLogs")
 }
@@ -74,7 +75,7 @@ model ChildProfile {
   therapistId String
   therapist   TherapistProfile @relation(fields: [therapistId], references: [id])
 
-  guardianId String?          @unique
+  guardianId String?
   guardian   GuardianProfile? @relation(fields: [guardianId], references: [id])
 
   // Behavioral data [cite: 419]
@@ -94,13 +95,34 @@ model GuardianProfile {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id])
 
-  child ChildProfile? // 1-to-1 relationship with Child [cite: 422]
+  children ChildProfile[]
+  pairingRequests GuardianChildPairingRequest[]
 
   // Guardian metadata
   relationship            String?
   phoneNumber             String?
   emergencyContactInfo    String?
   notificationPreferences Json?
+}
+
+enum GuardianChildPairingStatus {
+  PENDING
+  CONSUMED
+  EXPIRED
+  CANCELLED
+}
+
+model GuardianChildPairingRequest {
+  id                String                     @id @default(cuid())
+  guardianProfileId String
+  guardianProfile   GuardianProfile            @relation(fields: [guardianProfileId], references: [id])
+  childUserId       String
+  childUser         User                       @relation(fields: [childUserId], references: [id])
+  tokenHash         String                     @unique
+  status            GuardianChildPairingStatus @default(PENDING)
+  expiresAt         DateTime
+  consumedAt        DateTime?
+  createdAt         DateTime                   @default(now())
 }
 
 // Story Template: "Seed data" for AI generation [cite: 227, 418]

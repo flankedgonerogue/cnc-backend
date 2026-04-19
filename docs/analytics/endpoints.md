@@ -137,3 +137,92 @@ query TherapistDashboard(
 ### Related
 
 - Per-session detail: `getSessionBehavioralAnalytics` (Story module) — single session analytics + interactions.
+
+---
+
+## Query: `guardianChildAnalytics`
+
+Parent-friendly per-child progress view for the authenticated guardian. This intentionally excludes therapist-only breakdowns.
+
+### Authentication
+
+- `Authorization: Bearer <access_token>`
+- Role: **`GUARDIAN`**
+
+### Arguments
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `period` | `DashboardPeriod` | yes | `WEEK` or `MONTH` rolling window |
+| `comparePrevious` | `Boolean` | no (default `false`) | Include delta vs prior same-length window |
+| `childProfileId` | `ID` / `String` | no | Restrict to one child; must belong to guardian |
+
+### Response shape
+
+- `period`, `currentWindow`, `previousWindow`
+- `children[]` with parent-safe metrics:
+  - `childProfileId`, `displayName`
+  - `sessionCount`
+  - `completionRate`
+  - `positiveChoiceRatio`
+  - `engagementDeltaPercent` (optional)
+  - `statusLabel` (`improving` | `steady` | `needsAttention`)
+  - `parentSummary` (plain-language recommendation)
+  - `trend[]` (bucketed engagement trend points)
+
+### Example
+
+```graphql
+query GuardianChildAnalytics(
+  $period: DashboardPeriod!
+  $comparePrevious: Boolean!
+  $childProfileId: String
+) {
+  guardianChildAnalytics(
+    period: $period
+    comparePrevious: $comparePrevious
+    childProfileId: $childProfileId
+  ) {
+    period
+    currentWindow { start end }
+    previousWindow { start end }
+    children {
+      childProfileId
+      displayName
+      sessionCount
+      completionRate
+      positiveChoiceRatio
+      engagementDeltaPercent
+      statusLabel
+      parentSummary
+      trend {
+        bucketStart
+        bucketEnd
+        engagementScore
+      }
+    }
+  }
+}
+```
+
+**Variables**
+
+```json
+{
+  "period": "MONTH",
+  "comparePrevious": true,
+  "childProfileId": null
+}
+```
+
+### Parent UI interpretation guidance
+
+- `statusLabel = improving`: show encouraging tone and keep routines.
+- `statusLabel = steady`: show neutral-progress tone and suggest consistency.
+- `statusLabel = needsAttention`: suggest check-in with therapist and reinforce support.
+
+### Errors
+
+- `401` auth error — invalid/missing JWT
+- `403` guardian tried to query child not linked to them
+- `404` guardian profile missing

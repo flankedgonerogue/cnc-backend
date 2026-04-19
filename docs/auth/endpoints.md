@@ -18,6 +18,9 @@ This document describes **authentication** (REST and GraphQL) and **admin** HTTP
 - `JWT_EXPIRES_IN` (optional, default `7d`)
 - `PORT` (optional, default `3000`)
 - `FRONTEND_URL` (optional; used in password-reset emails, default `http://localhost:3000` in code paths — align with your frontend for reset links)
+- `BACKEND_URL` (optional; used to build absolute pairing confirmation URL, default `http://localhost:3000`)
+- `FRONTEND_SUCCESSFUL_PAIRING_URL` (optional; redirect target after successful child pairing confirmation)
+- `FRONTEND_ERROR_URL` (optional; redirect target after failed/expired child pairing confirmation)
 
 **Google OAuth** (optional; required only if you use Google login)
 
@@ -151,10 +154,12 @@ Redirects to Google (no JSON body). Requires Google OAuth env vars.
 
 **Responses**
 
-- `200 OK` — `{ access_token, user, isNew, roleRequired, message }`
-  - `isNew` — first-time Google user for this email
-  - `roleRequired` — `true` when `user.role` is not set (call OAuth role endpoint)
-- `401 Unauthorized` — e.g. deactivated user, or email already registered with a **password** (must use email/password login)
+- **302 Redirect** — redirects to `${FRONTEND_URL}/auth/callback` with a URL fragment containing:
+  - `access_token`
+  - `isNew`
+  - `roleRequired`
+- `200 OK` — `{ access_token, user, isNew, roleRequired, message }` when `FRONTEND_URL` is not set
+- `401 Unauthorized` — e.g. deactivated user
 
 ---
 
@@ -163,6 +168,9 @@ Redirects to Google (no JSON body). Requires Google OAuth env vars.
 `POST /auth/oauth/role`
 
 One-time role assignment for OAuth users. **`GUARDIAN`** or **`CHILD`** only.
+Creates the matching profile:
+- `GUARDIAN` -> creates `guardianProfile`
+- `CHILD` -> creates `childProfile` (requires therapist link)
 
 ```http
 POST /auth/oauth/role
@@ -170,9 +178,12 @@ Authorization: Bearer <access_token>
 Content-Type: application/json
 
 {
-  "role": "CHILD"
+  "role": "CHILD",
+  "therapistEmail": "therapist@example.com"
 }
 ```
+
+`therapistEmail` is required when `role` is `CHILD` and must resolve to an existing therapist account with a therapist profile.
 
 **Responses**
 
@@ -263,6 +274,53 @@ Same business logic as REST; use `Authorization: Bearer <access_token>` for prot
 | `resetPassword` | Mutation | `resetInput`: `token`, `password` |
 
 Response types include `AuthResponse` (`access_token`, `user`), `VerifyResponse`, `PasswordResetResponse`, `ValidateResetTokenResponse`, and `User` where applicable. See `src/auth/dto/auth.type.ts` and `src/auth/auth.resolver.ts`.
+
+---
+
+# User management — Guardian/Child pairing
+
+## Guardian creates a new child (GraphQL)
+
+`addChild(createChildInput: CreateChildInput!)`
+
+`CreateChildInput` requires:
+- `email`
+- `password`
+- `therapistEmail` (must map to an existing therapist profile)
+- optional names
+
+This creates:
+- child `User` (`role: CHILD`)
+- linked `ChildProfile`
+- `guardianId` set to current guardian profile
+
+## Guardian lists linked children (GraphQL)
+
+`myChildrenForGuardian: [User!]!`
+
+Returns all child users currently linked to the authenticated guardian.
+
+## Guardian requests pairing to existing child account (GraphQL)
+
+`requestChildPairing(requestChildPairingInput: RequestChildPairingInput!): PairingRequestResponse!`
+
+Input:
+- `childEmail`
+
+Behavior:
+- Creates a secure, expiring backend pairing request
+- Sends a pairing email to the child account email containing a confirmation URL
+
+## Pairing confirmation callback (REST)
+
+`GET /users/pairing/confirm?token=<pairing-token>`
+
+Behavior:
+- validates token and expiry
+- on success, links the child profile to guardian profile
+- redirects to:
+  - `FRONTEND_SUCCESSFUL_PAIRING_URL` (success)
+  - `FRONTEND_ERROR_URL` (error/expired/invalid)
 
 ---
 

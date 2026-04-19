@@ -360,11 +360,13 @@ mutation setOAuthRole($setRoleInput: SetRoleInput!): UserAuth!
 ```graphql
 input SetRoleInput {
   role: String!
+  therapistEmail: String
 }
 ```
 
 **Input Fields:**
 - `role` (String): User role - must be `GUARDIAN` or `CHILD`
+- `therapistEmail` (String, required for `CHILD`): Therapist email used to create/link `ChildProfile`
 
 **Output:**
 - Returns `UserAuth` object with updated user information
@@ -376,6 +378,23 @@ mutation {
     id
     email
     role
+  }
+}
+```
+
+**Example Request (CHILD):**
+```graphql
+mutation {
+  setOAuthRole(setRoleInput: {
+    role: "CHILD"
+    therapistEmail: "therapist@example.com"
+  }) {
+    id
+    email
+    role
+    childProfile {
+      therapistId
+    }
   }
 }
 ```
@@ -632,8 +651,7 @@ GraphQL errors are returned in the standard GraphQL format:
 | CONFLICT | User with email already exists | Email already registered |
 | UNAUTHORIZED | Invalid credentials | Wrong password or non-existent user |
 | UNAUTHORIZED | This account has been deactivated | User account deleted |
-| UNAUTHORIZED | This email is already registered with a password | OAuth user attempting password login |
-| UNAUTHORIZED | This email is already registered via Google | Password user attempting OAuth login |
+| UNAUTHORIZED | This account is registered without a password. Please use Google to sign in. | OAuth-only account attempting password login |
 | BAD_REQUEST | Password must be at least 8 characters long | Password too short |
 | BAD_REQUEST | Invalid or expired reset token | Reset token invalid or expired |
 | NOT_FOUND | User not found | User doesn't exist |

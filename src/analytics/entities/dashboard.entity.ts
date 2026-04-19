@@ -141,3 +141,60 @@ export class TherapistDashboardAnalyticsPayload {
   @Field(() => [TemplateDashboardRow])
   byTemplate: TemplateDashboardRow[];
 }
+
+@ObjectType()
+export class GuardianChildTrendPoint {
+  @Field(() => Date)
+  bucketStart: Date;
+
+  @Field(() => Date)
+  bucketEnd: Date;
+
+  @Field(() => Float)
+  engagementScore: number;
+}
+
+@ObjectType()
+export class GuardianChildSnapshot {
+  @Field(() => ID)
+  childProfileId: string;
+
+  @Field(() => String, { nullable: true })
+  displayName: string | null;
+
+  @Field(() => Int)
+  sessionCount: number;
+
+  @Field(() => Float)
+  completionRate: number;
+
+  @Field(() => Float)
+  positiveChoiceRatio: number;
+
+  @Field(() => Float, { nullable: true })
+  engagementDeltaPercent: number | null;
+
+  @Field(() => String)
+  statusLabel: string;
+
+  @Field(() => String)
+  parentSummary: string;
+
+  @Field(() => [GuardianChildTrendPoint])
+  trend: GuardianChildTrendPoint[];
+}
+
+@ObjectType()
+export class GuardianChildAnalyticsPayload {
+  @Field(() => DashboardPeriod)
+  period: DashboardPeriod;
+
+  @Field(() => AnalyticsPeriodWindow)
+  currentWindow: AnalyticsPeriodWindow;
+
+  @Field(() => AnalyticsPeriodWindow, { nullable: true })
+  previousWindow: AnalyticsPeriodWindow | null;
+
+  @Field(() => [GuardianChildSnapshot])
+  children: GuardianChildSnapshot[];
+}

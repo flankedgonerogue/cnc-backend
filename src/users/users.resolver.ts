@@ -1,9 +1,11 @@
 import { Resolver, Query, Mutation, Args, Context } from '@nestjs/graphql';
 import { UseGuards, UnauthorizedException } from '@nestjs/common';
 import { User } from './user.entity';
+import { PairingRequestResponse } from './user.entity';
 import { UsersService } from './users.service';
 import { UpdateUserInput } from './dto/update-user.input';
 import { CreateChildInput } from './dto/create-child.input';
+import { RequestChildPairingInput } from './dto/request-child-pairing.input';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -56,11 +58,11 @@ export class UsersResolver {
     return this.usersService.findChildrenByTherapist(context.req.user.id);
   }
 
-  @Query(() => User, { name: 'myChild', nullable: true })
+  @Query(() => [User], { name: 'myChildrenForGuardian' })
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.GUARDIAN)
-  async getMyChild(@Context() context: any): Promise<User | undefined> {
-    return this.usersService.findChildByGuardian(context.req.user.id);
+  async getMyChildrenForGuardian(@Context() context: any): Promise<User[]> {
+    return this.usersService.findChildrenByGuardian(context.req.user.id);
   }
 
   @Mutation(() => User, { name: 'addChild' })
@@ -73,6 +75,20 @@ export class UsersResolver {
     return this.usersService.createChildForGuardian(
       context.req.user.id,
       createChildInput,
+    );
+  }
+
+  @Mutation(() => PairingRequestResponse, { name: 'requestChildPairing' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.GUARDIAN)
+  async requestChildPairing(
+    @Args('requestChildPairingInput')
+    requestChildPairingInput: RequestChildPairingInput,
+    @Context() context: any,
+  ): Promise<PairingRequestResponse> {
+    return this.usersService.requestPairingForExistingChild(
+      context.req.user.id,
+      requestChildPairingInput.childEmail,
     );
   }
 
